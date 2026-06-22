@@ -12,6 +12,14 @@ let mainWindow: BrowserWindow | null = null;
 let petWindow: BrowserWindow | null = null;
 let latestSettings: AppSettings | null = null;
 
+function getPetWindowSize(settings: AppSettings): { width: number; height: number } {
+  const scale = settings.desktopPetScale || 1;
+  return {
+    width: Math.round(164 * scale),
+    height: Math.round(202 * scale)
+  };
+}
+
 function registerWindowIpc(): void {
   ipcMain.handle('window:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
@@ -41,6 +49,8 @@ function registerWindowIpc(): void {
     latestSettings = { ...(await readAppSettings()), desktopPet: enabled };
     if (enabled && latestSettings.desktopPetAssetPath) {
       if (petWindow) {
+        const size = getPetWindowSize(latestSettings);
+        petWindow.setSize(size.width, size.height);
         petWindow.webContents.reload();
       } else {
         createPetWindow(latestSettings);
@@ -61,13 +71,14 @@ function loadRenderer(window: BrowserWindow, hash = ''): void {
 
 function createPetWindow(settings: AppSettings): void {
   if (!settings.desktopPet || !settings.desktopPetAssetPath || petWindow) return;
+  const size = getPetWindowSize(settings);
 
   petWindow = new BrowserWindow({
     title: 'Desktop Pet',
-    width: 164,
-    height: 202,
-    minWidth: 132,
-    minHeight: 148,
+    width: size.width,
+    height: size.height,
+    minWidth: 82,
+    minHeight: 101,
     show: true,
     frame: false,
     transparent: true,

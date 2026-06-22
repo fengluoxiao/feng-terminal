@@ -177,6 +177,8 @@ const translations = {
     desktopPetDescription: 'Show a floating assistant pet for this app.',
     desktopPetStyle: 'Pet style',
     desktopPetStyleDescription: 'Uses Codex pet folders with pet.json and spritesheet.webp.',
+    desktopPetScale: 'Pet size',
+    desktopPetScaleDescription: 'Adjust the floating pet window size.',
     importDesktopPet: 'Import',
     unselectedDesktopPet: 'Not selected',
     noDesktopPets: 'No pets found',
@@ -318,6 +320,8 @@ const translations = {
     desktopPetDescription: '显示这个应用的悬浮桌宠。',
     desktopPetStyle: '桌宠样式',
     desktopPetStyleDescription: '使用 Codex 桌宠文件夹格式：pet.json 和 spritesheet.webp。',
+    desktopPetScale: '桌宠大小',
+    desktopPetScaleDescription: '调整悬浮桌宠窗口大小。',
     importDesktopPet: '导入',
     unselectedDesktopPet: '未选择',
     noDesktopPets: '未找到桌宠',
@@ -665,7 +669,7 @@ export function App(): ReactNode {
     if (patch.defaultProfileId) setActiveProfile(patch.defaultProfileId);
     void window.settingsApi.save(nextSettings).then((savedSettings) => {
       setSettings(savedSettings);
-      if ('desktopPet' in patch || 'desktopPetAssetPath' in patch) {
+      if ('desktopPet' in patch || 'desktopPetAssetPath' in patch || 'desktopPetScale' in patch) {
         void window.petApi.toggle(savedSettings.desktopPet);
       }
     });
@@ -1191,6 +1195,23 @@ function SettingsView({
                 {t.importDesktopPet}
               </button>
             </div>
+          </div>
+          <div className="setting-row">
+            <span>
+              <strong>{t.desktopPetScale}</strong>
+              <small>{t.desktopPetScaleDescription}</small>
+            </span>
+            <label className="range-control">
+              <input
+                max={2}
+                min={0.5}
+                step={0.05}
+                type="range"
+                value={settings.desktopPetScale}
+                onChange={(event) => onChange({ desktopPetScale: Number(event.target.value) })}
+              />
+              <strong>{Math.round(settings.desktopPetScale * 100)}%</strong>
+            </label>
           </div>
           </section>
         ) : null}

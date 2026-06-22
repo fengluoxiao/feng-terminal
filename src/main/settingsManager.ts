@@ -54,7 +54,11 @@ function sanitizeSettings(value: Partial<AppSettings> | null | undefined): AppSe
     desktopPetAssetPath:
       typeof value?.desktopPetAssetPath === 'string' && value.desktopPetAssetPath.trim()
         ? value.desktopPetAssetPath.trim()
-        : defaultSettings.desktopPetAssetPath
+        : defaultSettings.desktopPetAssetPath,
+    desktopPetScale:
+      typeof value?.desktopPetScale === 'number'
+        ? Math.min(2, Math.max(0.5, Math.round(value.desktopPetScale * 100) / 100))
+        : defaultSettings.desktopPetScale
   };
 }
 

@@ -1221,6 +1221,27 @@ kbd {
   border-color: rgba(36, 107, 254, 0.24);
 }
 
+.range-control {
+  display: grid;
+  width: 260px;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-control input[type="range"] {
+  width: 100%;
+  accent-color: #246bfe;
+}
+
+.range-control strong {
+  display: block;
+  color: #26313d;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: right;
+}
+
 .settings-group-title {
   display: flex;
   align-items: center;

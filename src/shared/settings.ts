@@ -21,6 +21,7 @@ export interface AppSettings {
   openLinksExternally: boolean;
   desktopPet: boolean;
   desktopPetAssetPath?: string;
+  desktopPetScale: number;
 }
 
 export const defaultCliBindings: CliBindings = {
@@ -64,5 +65,6 @@ export const defaultSettings: AppSettings = {
   confirmClose: true,
   openLinksExternally: true,
   desktopPet: true,
-  desktopPetAssetPath: undefined
+  desktopPetAssetPath: undefined,
+  desktopPetScale: 1
 };

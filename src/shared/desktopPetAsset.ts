@@ -63,7 +63,7 @@ export const codexPetAtlas: DesktopPetAtlas = {
 };
 
 export const codexPetActions: Record<DesktopPetActionName, DesktopPetAction> = {
-  idle: { row: 0, frames: 6, fps: 4 },
+  idle: { row: 0, frames: 6, fps: 2 },
   'running-right': { row: 1, frames: 8, fps: 10 },
   'running-left': { row: 2, frames: 8, fps: 10 },
   waving: { row: 3, frames: 4, fps: 6 },
