@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  ConversationBindSessionRequest,
   ConversationCreateRequest,
+  ConversationUpdateRequest,
   ConversationStore
 } from '../shared/conversation';
 import type {
@@ -14,6 +16,8 @@ import type {
   TerminalExitEvent
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
+import type { WorkspaceState } from '../shared/workspace';
+import type { AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
 
 const terminalApi = {
   listProfiles: (): Promise<CliProfile[]> => ipcRenderer.invoke('terminal:list-profiles'),
@@ -54,12 +58,32 @@ const conversationApi = {
   list: (): Promise<ConversationStore> => ipcRenderer.invoke('conversation:list'),
   create: (request: ConversationCreateRequest): Promise<ConversationStore> =>
     ipcRenderer.invoke('conversation:create', request),
+  update: (request: ConversationUpdateRequest): Promise<ConversationStore> =>
+    ipcRenderer.invoke('conversation:update', request),
+  bindSession: (request: ConversationBindSessionRequest): Promise<ConversationStore> =>
+    ipcRenderer.invoke('conversation:bind-session', request),
   touch: (id: string): Promise<ConversationStore> => ipcRenderer.invoke('conversation:touch', id),
   delete: (id: string): Promise<ConversationStore> => ipcRenderer.invoke('conversation:delete', id),
   chooseProject: (): Promise<string | null> => ipcRenderer.invoke('conversation:choose-project')
+};
+
+const workspaceApi = {
+  load: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:load'),
+  save: (workspace: WorkspaceState): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:save', workspace)
+};
+
+const agentApi = {
+  send: (request: AgentSendRequest): Promise<AgentSendResult> => ipcRenderer.invoke('agent:send', request),
+  onUpdate: (callback: (event: AgentUpdateEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: AgentUpdateEvent) => callback(payload);
+    ipcRenderer.on('agent:update', listener);
+    return () => ipcRenderer.removeListener('agent:update', listener);
+  }
 };
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi);
 contextBridge.exposeInMainWorld('windowApi', windowApi);
 contextBridge.exposeInMainWorld('settingsApi', settingsApi);
 contextBridge.exposeInMainWorld('conversationApi', conversationApi);
+contextBridge.exposeInMainWorld('workspaceApi', workspaceApi);
+contextBridge.exposeInMainWorld('agentApi', agentApi);

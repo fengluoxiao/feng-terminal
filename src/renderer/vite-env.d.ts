@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
 import type {
+  ConversationBindSessionRequest,
   ConversationCreateRequest,
+  ConversationUpdateRequest,
   ConversationStore
 } from '../shared/conversation';
 import type {
@@ -15,6 +17,8 @@ import type {
   TerminalExitEvent
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
+import type { WorkspaceState } from '../shared/workspace';
+import type { AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
 
 declare global {
   interface Window {
@@ -42,9 +46,19 @@ declare global {
     conversationApi: {
       list: () => Promise<ConversationStore>;
       create: (request: ConversationCreateRequest) => Promise<ConversationStore>;
+      update: (request: ConversationUpdateRequest) => Promise<ConversationStore>;
+      bindSession: (request: ConversationBindSessionRequest) => Promise<ConversationStore>;
       touch: (id: string) => Promise<ConversationStore>;
       delete: (id: string) => Promise<ConversationStore>;
       chooseProject: () => Promise<string | null>;
+    };
+    workspaceApi: {
+      load: () => Promise<WorkspaceState>;
+      save: (workspace: WorkspaceState) => Promise<WorkspaceState>;
+    };
+    agentApi: {
+      send: (request: AgentSendRequest) => Promise<AgentSendResult>;
+      onUpdate: (callback: (event: AgentUpdateEvent) => void) => () => void;
     };
   }
 }

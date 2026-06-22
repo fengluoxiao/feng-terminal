@@ -9,17 +9,45 @@ import type { CliId } from '../../shared/terminal';
 interface TerminalPaneProps {
   profileId: CliId;
   fontSize: number;
+  active: boolean;
   cwd?: string;
   extraArgs?: string[];
+  sessionKey?: string;
+  labels: {
+    starting: string;
+    status: Record<'booting' | 'ready' | 'closed', string>;
+    failedToStart: string;
+    exitedWithCode: string;
+    unknownExitCode: string;
+  };
 }
 
-export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPaneProps): ReactNode {
+export function TerminalPane({
+  profileId,
+  fontSize,
+  active,
+  cwd,
+  extraArgs,
+  sessionKey,
+  labels
+}: TerminalPaneProps): ReactNode {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const activeRef = useRef(active);
+  const labelsRef = useRef(labels);
   const [status, setStatus] = useState<'booting' | 'ready' | 'closed'>('booting');
-  const [sessionLabel, setSessionLabel] = useState('Starting');
+  const [sessionLabel, setSessionLabel] = useState(labels.starting);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    labelsRef.current = labels;
+    if (status === 'booting') setSessionLabel(labels.starting);
+  }, [labels, status]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -77,7 +105,8 @@ export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPa
         cols: terminal.cols,
         rows: terminal.rows,
         cwd,
-        extraArgs
+        extraArgs,
+        sessionKey
       })
       .then((session) => {
         if (disposed) {
@@ -87,6 +116,8 @@ export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPa
         sessionIdRef.current = session.id;
         setStatus('ready');
         setSessionLabel(`${session.profile.name}${session.pid ? ` · ${session.pid}` : ''}`);
+        if (session.replay) terminal.write(session.replay);
+        requestAnimationFrame(() => fitAddon.fit());
         if (session.warning) {
           terminal.writeln(`\r\n${session.warning}\r\n`);
         }
@@ -94,7 +125,7 @@ export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPa
       .catch((error: unknown) => {
         setStatus('closed');
         const message = error instanceof Error ? error.message : String(error);
-        terminal.writeln(`\r\nFailed to start ${profileId}: ${message}`);
+        terminal.writeln(`\r\n${labelsRef.current.failedToStart} ${profileId}: ${message}`);
       });
 
     const inputDisposable = terminal.onData((data) => {
@@ -103,13 +134,18 @@ export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPa
     });
 
     const removeDataListener = window.terminalApi.onData((event) => {
-      if (event.id === sessionIdRef.current) terminal.write(event.data);
+      if (event.id === sessionIdRef.current) {
+        terminal.write(event.data);
+        if (activeRef.current) requestAnimationFrame(() => fitAddon.fit());
+      }
     });
 
     const removeExitListener = window.terminalApi.onExit((event) => {
       if (event.id === sessionIdRef.current) {
         setStatus('closed');
-        terminal.writeln(`\r\n\r\nSession exited with code ${event.exitCode ?? 'unknown'}.`);
+        terminal.writeln(
+          `\r\n\r\n${labelsRef.current.exitedWithCode} ${event.exitCode ?? labelsRef.current.unknownExitCode}.`
+        );
       }
     });
 
@@ -132,17 +168,25 @@ export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPa
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [cwd, extraArgs, fontSize, profileId]);
+  }, [cwd, extraArgs, fontSize, profileId, sessionKey]);
+
+  useEffect(() => {
+    if (!active) return;
+    requestAnimationFrame(() => {
+      fitRef.current?.fit();
+      terminalRef.current?.focus();
+    });
+  }, [active]);
 
   return (
-    <div className="terminal-frame">
+    <div className={active ? 'terminal-frame active' : 'terminal-frame'} aria-hidden={!active}>
       <div className="terminal-meta">
         <span className={`status-dot ${status}`} />
         <TerminalSquare size={15} />
         <strong>{sessionLabel}</strong>
         <span className="terminal-state">
           {status === 'ready' ? <CheckCircle2 size={14} /> : <LoaderCircle size={14} />}
-          {status}
+          {labels.status[status]}
         </span>
       </div>
       <div className="terminal-host" ref={hostRef} />

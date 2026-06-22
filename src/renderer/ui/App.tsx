@@ -32,6 +32,9 @@ import type { ConversationMode, ConversationRecord, ConversationStore } from '..
 import { defaultCliBindings, defaultSettings } from '../../shared/settings';
 import type { AppSettings, CliBinding } from '../../shared/settings';
 import type { CliId, CliProfile, ShellOption } from '../../shared/terminal';
+import type { WorkspaceState } from '../../shared/workspace';
+import { AgentPane } from './AgentPane';
+import { ContextPanel } from './ContextPanel';
 import { TerminalPane } from './TerminalPane';
 
 const profileIcons: Record<CliId, typeof TerminalSquare> = {
@@ -42,6 +45,16 @@ const profileIcons: Record<CliId, typeof TerminalSquare> = {
   antigravity: Cpu,
   claude: Command,
   kimi: Sparkles
+};
+
+const cliClassNames: Record<CliId, string> = {
+  shell: 'cli-shell',
+  opencode: 'cli-opencode',
+  codex: 'cli-codex',
+  antigtravaty: 'cli-antigtravaty',
+  antigravity: 'cli-antigravity',
+  claude: 'cli-claude',
+  kimi: 'cli-kimi'
 };
 
 const translations = {
@@ -66,6 +79,7 @@ const translations = {
     chooseProject: 'Choose',
     recentProjects: 'Recent projects',
     conversationTitle: 'Conversation title',
+    autoTitle: 'Auto title when empty',
     conversationMode: 'Mode',
     sessionId: 'Session ID',
     createConversation: 'Create conversation',
@@ -77,6 +91,64 @@ const translations = {
     selected: 'Selected',
     loading: 'Loading',
     preparingProfiles: 'Preparing terminal profiles.',
+    deleteConversation: 'Delete conversation',
+    profileDescriptions: {
+      shell: 'Start a regular local terminal session.',
+      opencode: 'Launch OpenCode CLI in the current workspace.',
+      codex: 'Launch Codex CLI with the active working directory.',
+      antigtravaty: 'Launch the Antigtravaty CLI profile.',
+      antigravity: 'Launch the Antigravity CLI profile.',
+      claude: 'Launch Claude Code CLI.',
+      kimi: 'Launch Kimi CLI.'
+    },
+    agentPane: {
+      user: 'You',
+      running: 'running',
+      ready: 'ready',
+      inputPlaceholder: 'Type a message',
+      interrupted: 'Task was interrupted before a reply was captured.',
+      thinking: 'Thinking...',
+      retry: 'Retry'
+    },
+    contextPanel: {
+      noProject: 'No project',
+      shellSession: 'Shell session',
+      terminalTab: 'terminal-tab',
+      session: 'Session',
+      project: 'Project',
+      agent: 'Agent',
+      profile: 'Profile',
+      mode: 'Mode',
+      sessionId: 'Session ID',
+      context: 'Context',
+      messages: 'Messages',
+      runs: 'Runs',
+      noRuns: 'No runs yet',
+      prompt: 'Prompt',
+      statuses: {
+        running: 'RUNNING',
+        done: 'DONE',
+        error: 'ERROR'
+      },
+      modes: {
+        new: 'New',
+        'resume-last': 'Continue last',
+        'resume-id': 'Resume session',
+        fork: 'Fork session',
+        pty: 'Terminal'
+      }
+    },
+    terminalPane: {
+      starting: 'Starting',
+      status: {
+        booting: 'booting',
+        ready: 'ready',
+        closed: 'closed'
+      },
+      failedToStart: 'Failed to start',
+      exitedWithCode: 'Session exited with code',
+      unknownExitCode: 'unknown'
+    },
     preferences: 'Preferences',
     appearance: 'Appearance',
     theme: 'Theme',
@@ -141,6 +213,7 @@ const translations = {
     chooseProject: '选择',
     recentProjects: '最近项目',
     conversationTitle: '对话标题',
+    autoTitle: '留空自动生成',
     conversationMode: '模式',
     sessionId: '会话 ID',
     createConversation: '创建对话',
@@ -152,6 +225,64 @@ const translations = {
     selected: '已选择',
     loading: '加载中',
     preparingProfiles: '正在准备终端配置。',
+    deleteConversation: '删除对话',
+    profileDescriptions: {
+      shell: '启动普通本地终端会话。',
+      opencode: '在当前工作目录启动 OpenCode CLI。',
+      codex: '在当前工作目录启动 Codex CLI。',
+      antigtravaty: '启动 Antigtravaty CLI 配置。',
+      antigravity: '启动 Antigravity CLI 配置。',
+      claude: '启动 Claude Code CLI。',
+      kimi: '启动 Kimi CLI。'
+    },
+    agentPane: {
+      user: '你',
+      running: '运行中',
+      ready: '就绪',
+      inputPlaceholder: '输入消息',
+      interrupted: '任务被中断，未拿到回复。',
+      thinking: '正在思考...',
+      retry: '重试'
+    },
+    contextPanel: {
+      noProject: '无项目',
+      shellSession: 'Shell 会话',
+      terminalTab: '终端标签',
+      session: '会话',
+      project: '项目',
+      agent: '代理',
+      profile: '配置',
+      mode: '模式',
+      sessionId: '会话 ID',
+      context: '上下文',
+      messages: '消息',
+      runs: '运行',
+      noRuns: '暂无运行记录',
+      prompt: '提示词',
+      statuses: {
+        running: '运行中',
+        done: '完成',
+        error: '错误'
+      },
+      modes: {
+        new: '新对话',
+        'resume-last': '继续最近',
+        'resume-id': '恢复会话',
+        fork: '分叉会话',
+        pty: '终端'
+      }
+    },
+    terminalPane: {
+      starting: '启动中',
+      status: {
+        booting: '启动中',
+        ready: '就绪',
+        closed: '已关闭'
+      },
+      failedToStart: '启动失败',
+      exitedWithCode: '会话退出，代码',
+      unknownExitCode: '未知'
+    },
     preferences: '偏好设置',
     appearance: '外观',
     theme: '主题',
@@ -213,6 +344,7 @@ interface SessionTab {
   extraArgs?: string[];
   conversationId?: string;
   projectPath?: string;
+  sessionKey?: string;
 }
 
 const modeOptions: ConversationMode[] = ['new', 'resume-last', 'resume-id', 'fork'];
@@ -223,7 +355,30 @@ function getSupportedConversationModes(cliId: CliId): ConversationMode[] {
   return ['new'];
 }
 
+function getModeLabel(mode: ConversationMode, t: Translation): string {
+  if (mode === 'new') return t.startNew;
+  if (mode === 'resume-last') return t.continueLast;
+  if (mode === 'resume-id') return t.resumeSession;
+  return t.forkSession;
+}
+
+function formatConversationTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
 export function App(): ReactNode {
+  const fallbackTab = useMemo<SessionTab>(
+    () => {
+      const id = crypto.randomUUID();
+      return { id, profileId: 'shell', title: 'Shell', sessionKey: id };
+    },
+    []
+  );
   const [profiles, setProfiles] = useState<CliProfile[]>([]);
   const [availableProfileIds, setAvailableProfileIds] = useState<CliId[]>([]);
   const [shellOptions, setShellOptions] = useState<ShellOption[]>([]);
@@ -235,12 +390,15 @@ export function App(): ReactNode {
   const [activeProfile, setActiveProfile] = useState<CliId>('codex');
   const [activeView, setActiveView] = useState<'terminal' | 'settings'>('terminal');
   const [conversationPanelOpen, setConversationPanelOpen] = useState(true);
+  const [expandedAgentKeys, setExpandedAgentKeys] = useState<Record<string, boolean>>({});
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [tabs, setTabs] = useState<SessionTab[]>([
-    { id: crypto.randomUUID(), profileId: 'shell', title: 'Shell' }
-  ]);
-  const [activeTabId, setActiveTabId] = useState(tabs[0].id);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const [tabs, setTabs] = useState<SessionTab[]>([fallbackTab]);
+  const [activeTabId, setActiveTabId] = useState(fallbackTab.id);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+  const activeConversation = conversationStore.conversations.find(
+    (conversation) => conversation.id === activeTab.conversationId
+  );
   const resolvedLanguage = resolveLanguage(settings.language);
   const t = translations[resolvedLanguage];
 
@@ -258,7 +416,34 @@ export function App(): ReactNode {
       setActiveProfile(loadedSettings.defaultProfileId);
     });
     void window.conversationApi.list().then(setConversationStore);
+    void window.workspaceApi.load().then((workspace) => {
+      if (workspace.tabs.length > 0) {
+        setTabs(workspace.tabs);
+        setActiveTabId(workspace.activeTabId ?? workspace.tabs[0].id);
+        setActiveProfile(workspace.tabs.find((tab) => tab.id === workspace.activeTabId)?.profileId ?? workspace.tabs[0].profileId);
+      }
+      setActiveView(workspace.activeView);
+      setConversationPanelOpen(workspace.conversationPanelOpen);
+      setWorkspaceLoaded(true);
+    });
   }, []);
+
+  useEffect(() => window.agentApi.onUpdate((event) => setConversationStore(event.store)), []);
+
+  useEffect(() => {
+    if (!workspaceLoaded) return;
+    const workspace: WorkspaceState = {
+      tabs,
+      activeTabId,
+      activeView,
+      conversationPanelOpen
+    };
+    const timeout = window.setTimeout(() => {
+      void window.workspaceApi.save(workspace);
+    }, 180);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeTabId, activeView, conversationPanelOpen, tabs, workspaceLoaded]);
 
   useEffect(() => {
     if (profiles.length === 0) return;
@@ -306,21 +491,54 @@ export function App(): ReactNode {
   );
 
   const conversationsByProject = useMemo(() => {
-    const groups = new Map<string, ConversationRecord[]>();
+    const groups = new Map<string, Map<CliId, ConversationRecord[]>>();
     for (const conversation of conversationStore.conversations) {
-      const items = groups.get(conversation.projectPath) ?? [];
-      groups.set(conversation.projectPath, [...items, conversation]);
+      const agentGroups = groups.get(conversation.projectPath) ?? new Map<CliId, ConversationRecord[]>();
+      const items = agentGroups.get(conversation.cliId) ?? [];
+      agentGroups.set(conversation.cliId, [...items, conversation]);
+      groups.set(conversation.projectPath, agentGroups);
     }
-    return Array.from(groups.entries()).map(([projectPath, conversations]) => ({
-      projectPath,
-      conversations
-    }));
+
+    return Array.from(groups.entries())
+      .map(([projectPath, agentGroups]) => {
+        const agents = Array.from(agentGroups.entries())
+          .map(([cliId, conversations]) => ({
+            cliId,
+            conversations: [...conversations].sort(
+              (left, right) =>
+                new Date(right.lastOpenedAt).getTime() - new Date(left.lastOpenedAt).getTime()
+            )
+          }))
+          .sort(
+            (left, right) =>
+              new Date(right.conversations[0]?.lastOpenedAt ?? 0).getTime() -
+              new Date(left.conversations[0]?.lastOpenedAt ?? 0).getTime()
+          );
+
+        return {
+          projectPath,
+          conversationCount: agents.reduce((total, agent) => total + agent.conversations.length, 0),
+          agents
+        };
+      })
+      .sort((left, right) => {
+        const leftLatest = left.agents[0]?.conversations[0]?.lastOpenedAt ?? 0;
+        const rightLatest = right.agents[0]?.conversations[0]?.lastOpenedAt ?? 0;
+        return new Date(rightLatest).getTime() - new Date(leftLatest).getTime();
+      });
   }, [conversationStore.conversations]);
 
-  function getConversationArgs(conversation: ConversationRecord): string[] {
-    if (conversation.mode === 'new') return [];
+  function getAgentKey(projectPath: string, cliId: CliId): string {
+    return `${projectPath}::${cliId}`;
+  }
 
+  function getProfileName(profileId: CliId): string {
+    return profiles.find((profile) => profile.id === profileId)?.name ?? profileId;
+  }
+
+  function getConversationArgs(conversation: ConversationRecord): string[] {
     if (conversation.cliId === 'codex') {
+      if (conversation.mode === 'new') return [];
       if (conversation.mode === 'resume-last') return ['resume', '--last'];
       if (conversation.mode === 'resume-id' && conversation.sessionId) return ['resume', conversation.sessionId];
       if (conversation.mode === 'fork' && conversation.sessionId) return ['fork', conversation.sessionId];
@@ -328,6 +546,7 @@ export function App(): ReactNode {
     }
 
     if (conversation.cliId === 'claude') {
+      if (conversation.mode === 'new') return [];
       if (conversation.mode === 'resume-last') return ['--continue'];
       if ((conversation.mode === 'resume-id' || conversation.mode === 'fork') && conversation.sessionId) {
         return ['--resume', conversation.sessionId];
@@ -337,6 +556,7 @@ export function App(): ReactNode {
 
     if (conversation.cliId === 'opencode') {
       const args = [conversation.projectPath];
+      if (conversation.mode === 'new') return args;
       if (conversation.mode === 'resume-last') return [...args, '--continue'];
       if (conversation.mode === 'resume-id' && conversation.sessionId) return [...args, '--session', conversation.sessionId];
       if (conversation.mode === 'fork' && conversation.sessionId) return [...args, '--fork', conversation.sessionId];
@@ -354,7 +574,8 @@ export function App(): ReactNode {
     const tab = {
       id: crypto.randomUUID(),
       profileId: targetProfileId,
-      title: profile?.name ?? 'Terminal'
+      title: profile?.name ?? 'Terminal',
+      sessionKey: crypto.randomUUID()
     };
     setTabs((items) => [...items, tab]);
     setActiveTabId(tab.id);
@@ -362,6 +583,15 @@ export function App(): ReactNode {
   }
 
   function openConversation(conversation: ConversationRecord): void {
+    const existingTab = tabs.find((tab) => tab.conversationId === conversation.id);
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      setActiveProfile(existingTab.profileId);
+      setActiveView('terminal');
+      void window.conversationApi.touch(conversation.id).then(setConversationStore);
+      return;
+    }
+
     const profile = profiles.find((item) => item.id === conversation.cliId);
     const tab = {
       id: crypto.randomUUID(),
@@ -370,7 +600,8 @@ export function App(): ReactNode {
       cwd: conversation.projectPath,
       extraArgs: getConversationArgs(conversation),
       conversationId: conversation.id,
-      projectPath: conversation.projectPath
+      projectPath: conversation.projectPath,
+      sessionKey: conversation.id
     };
 
     setTabs((items) => [...items, tab]);
@@ -527,7 +758,12 @@ export function App(): ReactNode {
                       <Plus size={14} />
                       <span>{t.newConversation}</span>
                     </button>
-                    <button type="button" onClick={() => setConversationPanelOpen(false)}>
+                    <button
+                      type="button"
+                      aria-label={t.collapseConversation}
+                      title={t.collapseConversation}
+                      onClick={() => setConversationPanelOpen(false)}
+                    >
                       <PanelLeftClose size={14} />
                     </button>
                   </div>
@@ -547,32 +783,78 @@ export function App(): ReactNode {
                       <div className="conversation-project-title">
                         <BriefcaseBusiness size={13} />
                         <span>{group.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? group.projectPath}</span>
+                        <small>{group.conversationCount}</small>
                       </div>
-                      {group.conversations.map((conversation) => {
-                        const Icon = profileIcons[conversation.cliId] ?? MessageSquare;
+                      {group.agents.map((agent) => {
+                        const Icon = profileIcons[agent.cliId] ?? MessageSquare;
+                        const activeConversation = agent.conversations.find(
+                          (conversation) => conversation.id === activeTab.conversationId
+                        );
+                        const latestConversation = activeConversation ?? agent.conversations[0];
+                        const agentKey = getAgentKey(group.projectPath, agent.cliId);
+                        const isExpanded =
+                          expandedAgentKeys[agentKey] ?? (Boolean(activeConversation) || agent.conversations.length > 1);
+                        const profileName = getProfileName(agent.cliId);
                         return (
-                          <div className="conversation-item" key={conversation.id}>
-                          <button
-                            className={conversation.id === activeTab.conversationId ? 'agent-card selected' : 'agent-card'}
-                            type="button"
-                            onClick={() => openConversation(conversation)}
-                          >
-                            <Icon size={17} />
-                            <span>
-                              <strong>{conversation.title}</strong>
-                              <small>{conversation.cliId} · {conversation.mode}</small>
-                            </span>
-                          </button>
-                          <button
-                            className="conversation-delete"
-                            type="button"
-                            aria-label="Delete conversation"
-                            onClick={() => {
-                              void window.conversationApi.delete(conversation.id).then(setConversationStore);
-                            }}
-                          >
-                            <X size={12} />
-                          </button>
+                          <div className={`conversation-agent-group ${cliClassNames[agent.cliId]}`} key={agentKey}>
+                            <button
+                              className={activeConversation ? 'conversation-agent-header selected' : 'conversation-agent-header'}
+                              type="button"
+                              aria-expanded={isExpanded}
+                              onClick={() =>
+                                setExpandedAgentKeys((items) => ({
+                                  ...items,
+                                  [agentKey]: !isExpanded
+                                }))
+                              }
+                            >
+                              <Icon size={16} />
+                              <span>
+                                <strong>
+                                  {profileName}
+                                  <b>{agent.conversations.length}</b>
+                                </strong>
+                                <small>{latestConversation?.title ?? profileName}</small>
+                              </span>
+                              <ChevronDown size={14} />
+                            </button>
+                            {isExpanded ? (
+                              <div className="conversation-agent-conversations">
+                                {agent.conversations.map((conversation, index) => (
+                                  <div className="conversation-item" key={conversation.id}>
+                                    <button
+                                      className={
+                                        conversation.id === activeTab.conversationId
+                                          ? 'conversation-row selected'
+                                          : 'conversation-row'
+                                      }
+                                      type="button"
+                                      onClick={() => openConversation(conversation)}
+                                    >
+                                      <span className="conversation-row-index">#{index + 1}</span>
+                                      <span>
+                                        <strong>{conversation.title}</strong>
+                                        <small>
+                                          {getModeLabel(conversation.mode, t)} ·{' '}
+                                          {formatConversationTime(conversation.lastOpenedAt)}
+                                        </small>
+                                      </span>
+                                    </button>
+                                    <button
+                                      className="conversation-delete"
+                                      type="button"
+                                      aria-label={t.deleteConversation}
+                                      title={t.deleteConversation}
+                                      onClick={() => {
+                                        void window.conversationApi.delete(conversation.id).then(setConversationStore);
+                                      }}
+                                    >
+                                      <X size={12} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
@@ -583,7 +865,7 @@ export function App(): ReactNode {
                 <div className="profile-detail">
                   <span>{t.selected}</span>
                   <strong>{currentProfile?.name ?? t.loading}</strong>
-                  <p>{currentProfile?.description ?? t.preparingProfiles}</p>
+                  <p>{currentProfile ? t.profileDescriptions[currentProfile.id] : t.preparingProfiles}</p>
                 </div>
               </aside>
               ) : null}
@@ -591,10 +873,11 @@ export function App(): ReactNode {
                 <button
                   className="conversation-expand-button"
                   type="button"
+                  aria-label={t.expandConversation}
+                  title={t.expandConversation}
                   onClick={() => setConversationPanelOpen(true)}
                 >
                   <PanelLeftOpen size={15} />
-                  <span>{t.expandConversation}</span>
                 </button>
               ) : null}
 
@@ -640,14 +923,42 @@ export function App(): ReactNode {
                     <ChevronDown size={14} />
                   </button>
                 </div>
-                <TerminalPane
-                  key={activeTab.id}
-                  cwd={activeTab.cwd}
-                  extraArgs={activeTab.extraArgs}
-                  fontSize={settings.terminalFontSize}
-                  profileId={activeTab.profileId}
-                />
+                <div className="terminal-panes">
+                  {tabs.map((tab) => (
+                    tab.profileId === 'shell' ? (
+                      <TerminalPane
+                        key={tab.id}
+                        active={tab.id === activeTab.id}
+                        cwd={tab.cwd}
+                        extraArgs={tab.extraArgs}
+                        fontSize={settings.terminalFontSize}
+                        labels={t.terminalPane}
+                        profileId={tab.profileId}
+                        sessionKey={tab.sessionKey ?? tab.conversationId ?? tab.id}
+                      />
+                    ) : (
+                      <AgentPane
+                        key={tab.id}
+                        active={tab.id === activeTab.id}
+                        conversationId={tab.conversationId}
+                        conversationStore={conversationStore}
+                        labels={t.agentPane}
+                        onStoreChange={setConversationStore}
+                        profileId={tab.profileId}
+                        profileName={profiles.find((profile) => profile.id === tab.profileId)?.name ?? tab.profileId}
+                      />
+                    )
+                  ))}
+                </div>
               </section>
+              <ContextPanel
+                conversation={activeConversation}
+                profile={profiles.find((profile) => profile.id === activeTab.profileId)}
+                profileId={activeTab.profileId}
+                projectPath={activeTab.projectPath ?? activeTab.cwd}
+                tabTitle={activeTab.title}
+                labels={t.contextPanel}
+              />
             </div>
           )}
         </section>
@@ -1097,6 +1408,7 @@ function ConversationDialog({
             <input
               spellCheck={false}
               type="text"
+              placeholder={t.autoTitle}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />

@@ -36,12 +36,14 @@ export interface TerminalCreateRequest {
   rows: number;
   cwd?: string;
   extraArgs?: string[];
+  sessionKey?: string;
 }
 
 export interface TerminalCreateResult {
   id: string;
   pid?: number;
   profile: CliProfile;
+  replay?: string;
   warning?: string;
 }
 

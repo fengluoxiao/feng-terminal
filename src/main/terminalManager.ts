@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { homedir, platform } from 'node:os';
-import { delimiter, extname, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, extname, isAbsolute, join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
 import * as pty from 'node-pty';
@@ -19,6 +20,7 @@ import type {
 interface TerminalSession {
   owner: number;
   pty: pty.IPty;
+  sessionKey?: string;
 }
 
 interface PtyLaunch {
@@ -27,6 +29,7 @@ interface PtyLaunch {
 }
 
 const sessions = new Map<string, TerminalSession>();
+const maxTranscriptLength = 250_000;
 
 function getWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender);
@@ -210,10 +213,11 @@ function createPtyLaunch(command: string, args: string[]): PtyLaunch {
   if (platform() !== 'win32') {
     return { command, args };
   }
+  const commandShell = process.env.ComSpec || join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
 
   if (/\.(?:cmd|bat)$/iu.test(command)) {
     return {
-      command: 'cmd.exe',
+      command: commandShell,
       args: ['/d', '/c', 'call', command, ...args]
     };
   }
@@ -232,6 +236,32 @@ function getUnavailableProfileMessage(profileName: string, command: string): str
   return `${profileName} is not available on PATH: ${command}\r\nCheck Terminal bindings or install the CLI, then open a new terminal.`;
 }
 
+function sanitizeSessionKey(value: string | undefined): string | undefined {
+  return value?.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || undefined;
+}
+
+function getTranscriptPath(sessionKey: string): string {
+  return join(homedir(), '.tui-ai-terminal', 'transcripts', `${sessionKey}.ansi`);
+}
+
+async function readTranscript(sessionKey: string | undefined): Promise<string> {
+  if (!sessionKey) return '';
+  try {
+    return await readFile(getTranscriptPath(sessionKey), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function appendTranscript(sessionKey: string | undefined, data: string): Promise<void> {
+  if (!sessionKey) return;
+  const transcriptPath = getTranscriptPath(sessionKey);
+  const current = await readTranscript(sessionKey);
+  const next = `${current}${data}`.slice(-maxTranscriptLength);
+  await mkdir(dirname(transcriptPath), { recursive: true });
+  await writeFile(transcriptPath, next, 'utf8');
+}
+
 export function registerTerminalIpc(): void {
   ipcMain.handle('terminal:list-profiles', () => cliProfiles);
   ipcMain.handle('terminal:list-shells', () => listShellOptions());
@@ -248,9 +278,15 @@ export function registerTerminalIpc(): void {
       const profile = applyBinding(baseProfile, settings.cliBindings[baseProfile.id]);
       const profileWithRequestArgs = {
         ...profile,
-        args: [...profile.args, ...(Array.isArray(request.extraArgs) ? request.extraArgs : [])]
+        args: [
+          ...profile.args,
+          ...(baseProfile.id === 'codex' ? ['--no-alt-screen'] : []),
+          ...(Array.isArray(request.extraArgs) ? request.extraArgs : [])
+        ]
       };
       const id = randomUUID();
+      const sessionKey = sanitizeSessionKey(request.sessionKey);
+      const replay = await readTranscript(sessionKey);
       const fallbackProfile = getCliProfile('shell');
       const env = createEnv();
       const resolvedCommand = resolveCommand(profileWithRequestArgs.command, env);
@@ -270,10 +306,12 @@ export function registerTerminalIpc(): void {
 
       sessions.set(id, {
         owner: event.sender.id,
-        pty: terminal
+        pty: terminal,
+        sessionKey
       });
 
       terminal.onData((data) => {
+        void appendTranscript(sessionKey, data);
         sendToOwner(window, 'terminal:data', { id, data });
       });
 
@@ -282,7 +320,7 @@ export function registerTerminalIpc(): void {
         sendToOwner(window, 'terminal:exit', { id, exitCode, signal });
       });
 
-      return { id, pid: terminal.pid, profile: profileWithRequestArgs, warning };
+      return { id, pid: terminal.pid, profile: profileWithRequestArgs, replay, warning };
     }
   );
 

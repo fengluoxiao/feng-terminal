@@ -1,8 +1,10 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { registerAgentIpc } from './agentManager';
 import { registerConversationIpc } from './conversationManager';
 import { readAppSettings, registerSettingsIpc } from './settingsManager';
 import { registerTerminalIpc } from './terminalManager';
+import { registerWorkspaceIpc } from './workspaceManager';
 import type { AppSettings } from '../shared/settings';
 
 function registerWindowIpc(): void {
@@ -75,8 +77,10 @@ function createWindow(settings: AppSettings): void {
 
 app.whenReady().then(async () => {
   const settings = await readAppSettings();
+  registerAgentIpc();
   registerConversationIpc();
   registerSettingsIpc();
+  registerWorkspaceIpc();
   registerWindowIpc();
   registerTerminalIpc();
   createWindow(settings);
