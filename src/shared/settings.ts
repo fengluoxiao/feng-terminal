@@ -19,6 +19,8 @@ export interface AppSettings {
   cliBindings: CliBindings;
   confirmClose: boolean;
   openLinksExternally: boolean;
+  desktopPet: boolean;
+  desktopPetAssetPath?: string;
 }
 
 export const defaultCliBindings: CliBindings = {
@@ -60,5 +62,7 @@ export const defaultSettings: AppSettings = {
   defaultProfileId: 'shell',
   cliBindings: defaultCliBindings,
   confirmClose: true,
-  openLinksExternally: true
+  openLinksExternally: true,
+  desktopPet: true,
+  desktopPetAssetPath: undefined
 };

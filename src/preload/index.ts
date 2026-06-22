@@ -18,6 +18,7 @@ import type {
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
 import type { AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
+import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 const terminalApi = {
   listProfiles: (): Promise<CliProfile[]> => ipcRenderer.invoke('terminal:list-profiles'),
@@ -47,6 +48,15 @@ const windowApi = {
   minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
   close: (): Promise<void> => ipcRenderer.invoke('window:close')
+};
+
+const petApi = {
+  focusMain: (): Promise<void> => ipcRenderer.invoke('pet:focus-main'),
+  toggle: (enabled: boolean): Promise<void> => ipcRenderer.invoke('pet:toggle', enabled),
+  listAssets: (): Promise<DesktopPetAsset[]> => ipcRenderer.invoke('pet:list-assets'),
+  resolveAsset: (manifestPath?: string): Promise<DesktopPetAsset | null> =>
+    ipcRenderer.invoke('pet:resolve-asset', manifestPath),
+  importAsset: (): Promise<DesktopPetImportResult> => ipcRenderer.invoke('pet:import-asset')
 };
 
 const settingsApi = {
@@ -83,6 +93,7 @@ const agentApi = {
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi);
 contextBridge.exposeInMainWorld('windowApi', windowApi);
+contextBridge.exposeInMainWorld('petApi', petApi);
 contextBridge.exposeInMainWorld('settingsApi', settingsApi);
 contextBridge.exposeInMainWorld('conversationApi', conversationApi);
 contextBridge.exposeInMainWorld('workspaceApi', workspaceApi);

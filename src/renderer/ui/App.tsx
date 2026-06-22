@@ -36,6 +36,7 @@ import type { WorkspaceState } from '../../shared/workspace';
 import { AgentPane } from './AgentPane';
 import { ContextPanel } from './ContextPanel';
 import { TerminalPane } from './TerminalPane';
+import type { DesktopPetAsset } from '../../shared/desktopPetAsset';
 
 const profileIcons: Record<CliId, typeof TerminalSquare> = {
   shell: TerminalSquare,
@@ -172,6 +173,13 @@ const translations = {
     confirmCloseDescription: 'Ask before closing running sessions.',
     openLinksExternally: 'Open links externally',
     openLinksExternallyDescription: 'Use the system browser for terminal links.',
+    desktopPet: 'Desktop pet',
+    desktopPetDescription: 'Show a floating assistant pet for this app.',
+    desktopPetStyle: 'Pet style',
+    desktopPetStyleDescription: 'Uses Codex pet folders with pet.json and spritesheet.webp.',
+    importDesktopPet: 'Import',
+    unselectedDesktopPet: 'Not selected',
+    noDesktopPets: 'No pets found',
     shortcutCommandPalette: 'Command palette',
     shortcutCommandPaletteValue: '⌘K / Ctrl+K',
     shortcutNewTerminal: 'New terminal',
@@ -306,6 +314,13 @@ const translations = {
     confirmCloseDescription: '关闭运行中的会话前询问。',
     openLinksExternally: '外部打开链接',
     openLinksExternallyDescription: '使用系统浏览器打开终端链接。',
+    desktopPet: '桌宠',
+    desktopPetDescription: '显示这个应用的悬浮桌宠。',
+    desktopPetStyle: '桌宠样式',
+    desktopPetStyleDescription: '使用 Codex 桌宠文件夹格式：pet.json 和 spritesheet.webp。',
+    importDesktopPet: '导入',
+    unselectedDesktopPet: '未选择',
+    noDesktopPets: '未找到桌宠',
     shortcutCommandPalette: '命令面板',
     shortcutCommandPaletteValue: '⌘K / Ctrl+K',
     shortcutNewTerminal: '新建终端',
@@ -648,7 +663,12 @@ export function App(): ReactNode {
     const nextSettings = { ...settings, ...patch };
     setSettings(nextSettings);
     if (patch.defaultProfileId) setActiveProfile(patch.defaultProfileId);
-    void window.settingsApi.save(nextSettings).then(setSettings);
+    void window.settingsApi.save(nextSettings).then((savedSettings) => {
+      setSettings(savedSettings);
+      if ('desktopPet' in patch || 'desktopPetAssetPath' in patch) {
+        void window.petApi.toggle(savedSettings.desktopPet);
+      }
+    });
   }
 
   return (
@@ -985,6 +1005,7 @@ function SettingsView({
   const [bindingChecks, setBindingChecks] = useState<
     Partial<Record<CliId, 'idle' | 'checking' | 'available' | 'missing'>>
   >({});
+  const [petAssets, setPetAssets] = useState<DesktopPetAsset[]>([]);
   const [activeCategory, setActiveCategory] = useState<
     'personalization' | 'system' | 'behavior' | 'shortcuts' | 'terminalBinding'
   >('personalization');
@@ -995,6 +1016,10 @@ function SettingsView({
     { id: 'shortcuts', icon: Keyboard, label: t.shortcuts },
     { id: 'terminalBinding', icon: Link, label: t.terminalBinding }
   ] as const;
+
+  useEffect(() => {
+    void window.petApi.listAssets().then(setPetAssets);
+  }, []);
 
   function getBinding(profile: CliProfile): CliBinding {
     return (
@@ -1038,6 +1063,18 @@ function SettingsView({
       .catch(() => {
         setBindingChecks((items) => ({ ...items, [profile.id]: 'missing' }));
       });
+  }
+
+  function importDesktopPet(): void {
+    void window.petApi.importAsset().then((result) => {
+      if (!result.ok || !result.asset) return;
+      setPetAssets((items) => {
+        const nextItems = items.filter((item) => item.manifestPath !== result.asset?.manifestPath);
+        return [result.asset!, ...nextItems];
+      });
+      onChange({ desktopPet: true, desktopPetAssetPath: result.asset.manifestPath });
+      void window.petApi.toggle(true);
+    });
   }
 
   return (
@@ -1119,6 +1156,42 @@ function SettingsView({
               onChange={(event) => onChange({ nativeMaterial: event.target.checked })}
             />
           </label>
+          <label className="setting-row">
+            <span>
+              <strong>{t.desktopPet}</strong>
+              <small>{t.desktopPetDescription}</small>
+            </span>
+            <input
+              checked={settings.desktopPet}
+              type="checkbox"
+              onChange={(event) => onChange({ desktopPet: event.target.checked })}
+            />
+          </label>
+          <div className="setting-row">
+            <span>
+              <strong>{t.desktopPetStyle}</strong>
+              <small>{t.desktopPetStyleDescription}</small>
+            </span>
+            <div className="pet-picker">
+              <SelectMenu
+                options={
+                  petAssets.length > 0
+                    ? [
+                        { label: t.unselectedDesktopPet, value: '' },
+                        ...petAssets.map((asset) => ({ label: asset.displayName, value: asset.manifestPath }))
+                      ]
+                    : [{ label: t.noDesktopPets, value: '' }]
+                }
+                value={settings.desktopPetAssetPath ?? ''}
+                onChange={(value) => {
+                  onChange({ desktopPetAssetPath: value || undefined });
+                }}
+              />
+              <button className="settings-secondary-button" type="button" onClick={importDesktopPet}>
+                {t.importDesktopPet}
+              </button>
+            </div>
+          </div>
           </section>
         ) : null}
 

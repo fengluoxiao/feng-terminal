@@ -23,6 +23,7 @@ function sanitizeCliBindings(value: CliBindings | null | undefined): CliBindings
 }
 
 function sanitizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
+  const legacyPet = value as Partial<AppSettings> & { codexPet?: boolean };
   return {
     theme: value?.theme === 'dark' || value?.theme === 'system' ? value.theme : defaultSettings.theme,
     language:
@@ -43,7 +44,17 @@ function sanitizeSettings(value: Partial<AppSettings> | null | undefined): AppSe
     openLinksExternally:
       typeof value?.openLinksExternally === 'boolean'
         ? value.openLinksExternally
-        : defaultSettings.openLinksExternally
+        : defaultSettings.openLinksExternally,
+    desktopPet:
+      typeof value?.desktopPet === 'boolean'
+        ? value.desktopPet
+        : typeof legacyPet?.codexPet === 'boolean'
+          ? legacyPet.codexPet
+          : defaultSettings.desktopPet,
+    desktopPetAssetPath:
+      typeof value?.desktopPetAssetPath === 'string' && value.desktopPetAssetPath.trim()
+        ? value.desktopPetAssetPath.trim()
+        : defaultSettings.desktopPetAssetPath
   };
 }
 
@@ -61,6 +72,7 @@ async function writeSettings(settings: AppSettings): Promise<AppSettings> {
   await mkdir(dirname(settingsPath), { recursive: true });
   await writeFile(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`, 'utf8');
   for (const window of BrowserWindow.getAllWindows()) {
+    if (window.getTitle() === 'Desktop Pet') continue;
     if (process.platform === 'win32') {
       window.setBackgroundMaterial(nextSettings.nativeMaterial ? 'acrylic' : 'none');
     } else if (process.platform === 'darwin') {

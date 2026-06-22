@@ -19,6 +19,7 @@ import type {
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
 import type { AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
+import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 declare global {
   interface Window {
@@ -38,6 +39,13 @@ declare global {
       minimize: () => Promise<void>;
       toggleMaximize: () => Promise<void>;
       close: () => Promise<void>;
+    };
+    petApi: {
+      focusMain: () => Promise<void>;
+      toggle: (enabled: boolean) => Promise<void>;
+      listAssets: () => Promise<DesktopPetAsset[]>;
+      resolveAsset: (manifestPath?: string) => Promise<DesktopPetAsset | null>;
+      importAsset: () => Promise<DesktopPetImportResult>;
     };
     settingsApi: {
       load: () => Promise<AppSettings>;

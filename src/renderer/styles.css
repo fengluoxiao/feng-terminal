@@ -53,8 +53,124 @@ body,
   overflow: hidden;
 }
 
+body:has(.desktop-pet) {
+  background: transparent;
+}
+
 button {
   font: inherit;
+}
+
+.desktop-pet {
+  -webkit-app-region: drag;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 8px;
+  color: #28313b;
+  background: transparent;
+}
+
+.desktop-pet-hit-area {
+  -webkit-app-region: drag;
+  position: relative;
+  display: grid;
+  width: 148px;
+  height: 190px;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.desktop-pet-loader {
+  display: none;
+}
+
+.desktop-pet-sprite {
+  display: block;
+  overflow: hidden;
+  transform: translateY(-13px);
+  background-repeat: no-repeat;
+  background-size: auto 100%;
+  filter: drop-shadow(0 10px 16px rgba(31, 42, 55, 0.18));
+  image-rendering: auto;
+}
+
+.desktop-pet-fallback {
+  display: grid;
+  width: 82px;
+  height: 82px;
+  place-items: center;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.42), transparent 34%),
+    linear-gradient(145deg, #2c78ff, #57b7d6 58%, #7dd9b8);
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 50%;
+  box-shadow: 0 12px 26px rgba(36, 107, 254, 0.22);
+}
+
+.desktop-pet-status {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 0 7px;
+  color: #31516f;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(68, 76, 86, 0.08);
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgba(31, 42, 55, 0.1);
+  font-size: 11px;
+  font-weight: 650;
+  transform: translateX(-50%);
+}
+
+.desktop-pet-running .desktop-pet-status svg {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.desktop-pet strong {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  max-width: 108px;
+  overflow: hidden;
+  color: #26313d;
+  font-size: 12px;
+  font-weight: 750;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.78);
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.desktop-pet small {
+  display: none;
+  max-width: 116px;
+  overflow: hidden;
+  color: #68737f;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.desktop-pet-error .desktop-pet-fallback {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.42), transparent 34%),
+    linear-gradient(145deg, #cf222e, #ff8a65);
+  box-shadow: 0 12px 26px rgba(207, 34, 46, 0.2);
 }
 
 .app-shell {
@@ -1071,6 +1187,38 @@ kbd {
   margin: 2px 4px 0;
   color: #69737f;
   font-size: 12px;
+}
+
+.pet-picker {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: min(360px, 100%);
+}
+
+.pet-picker .select-menu {
+  width: 220px;
+}
+
+.settings-secondary-button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: #26313d;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.14);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.settings-secondary-button:hover {
+  background: #f6f8fa;
+  border-color: rgba(36, 107, 254, 0.24);
 }
 
 .settings-group-title {
