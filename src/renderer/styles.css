@@ -47,8 +47,7 @@ button {
   height: 42px;
   padding: 0 0 0 8px;
   color: #5d6670;
-  background: rgba(248, 251, 250, 0.08);
-  border-bottom: 1px solid rgba(78, 88, 96, 0.08);
+  background: transparent;
 }
 
 .app-menu,
@@ -115,13 +114,7 @@ button {
   align-items: center;
   gap: 8px;
   padding: 14px 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(244, 247, 247, 0.06)),
-    rgba(255, 255, 255, 0.04);
-  border-right: 1px solid rgba(70, 77, 84, 0.18);
-  box-shadow:
-    inset -1px 0 0 rgba(255, 255, 255, 0.34),
-    10px 0 34px rgba(33, 42, 52, 0.08);
+  background: transparent;
 }
 
 .traffic-spacer {
@@ -168,11 +161,7 @@ button {
   min-width: 0;
   flex-direction: column;
   padding: 18px;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.34), rgba(232, 238, 245, 0.16)),
-    rgba(246, 245, 240, 0.18);
-  -webkit-backdrop-filter: blur(34px) saturate(1.45);
-  backdrop-filter: blur(34px) saturate(1.45);
+  background: transparent;
 }
 
 .titlebar {
@@ -213,7 +202,6 @@ h1 {
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(81, 89, 98, 0.12);
   border-radius: 8px;
-  backdrop-filter: blur(22px) saturate(1.45);
   box-shadow: 0 10px 25px rgba(31, 38, 46, 0.06);
 }
 
@@ -252,7 +240,6 @@ kbd {
   background: rgba(255, 255, 255, 0.38);
   border: 1px solid rgba(68, 76, 86, 0.16);
   border-radius: 8px;
-  backdrop-filter: blur(30px) saturate(1.5);
 }
 
 .panel-heading {
@@ -340,7 +327,6 @@ kbd {
   background: rgba(248, 249, 247, 0.52);
   border: 1px solid rgba(68, 76, 86, 0.1);
   border-radius: 8px;
-  backdrop-filter: blur(20px) saturate(1.4);
 }
 
 .profile-detail span {
