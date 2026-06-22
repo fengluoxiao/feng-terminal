@@ -1,6 +1,9 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { registerConversationIpc } from './conversationManager';
+import { readAppSettings, registerSettingsIpc } from './settingsManager';
 import { registerTerminalIpc } from './terminalManager';
+import type { AppSettings } from '../shared/settings';
 
 function registerWindowIpc(): void {
   ipcMain.handle('window:minimize', (event) => {
@@ -22,7 +25,7 @@ function registerWindowIpc(): void {
   });
 }
 
-function createWindow(): void {
+function createWindow(settings: AppSettings): void {
   const mainWindow = new BrowserWindow({
     width: 1320,
     height: 860,
@@ -33,10 +36,10 @@ function createWindow(): void {
     frame: process.platform === 'darwin',
     transparent: true,
     backgroundColor: '#00000000',
-    backgroundMaterial: process.platform === 'win32' ? 'acrylic' : undefined,
+    backgroundMaterial: process.platform === 'win32' && settings.nativeMaterial ? 'acrylic' : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
-    vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
+    vibrancy: process.platform === 'darwin' && settings.nativeMaterial ? 'under-window' : undefined,
     visualEffectState: 'active',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -46,7 +49,7 @@ function createWindow(): void {
     }
   });
 
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && settings.nativeMaterial) {
     mainWindow.setBackgroundMaterial('acrylic');
   }
 
@@ -70,13 +73,16 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const settings = await readAppSettings();
+  registerConversationIpc();
+  registerSettingsIpc();
   registerWindowIpc();
   registerTerminalIpc();
-  createWindow();
+  createWindow(settings);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(settings);
   });
 });
 

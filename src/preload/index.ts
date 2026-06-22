@@ -1,14 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  ConversationCreateRequest,
+  ConversationStore
+} from '../shared/conversation';
+import type {
   CliProfile,
+  ShellOption,
+  TerminalBindingCheckRequest,
+  TerminalBindingCheckResult,
   TerminalCreateRequest,
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent
 } from '../shared/terminal';
+import type { AppSettings } from '../shared/settings';
 
 const terminalApi = {
   listProfiles: (): Promise<CliProfile[]> => ipcRenderer.invoke('terminal:list-profiles'),
+  listShells: (): Promise<ShellOption[]> => ipcRenderer.invoke('terminal:list-shells'),
+  checkBinding: (request: TerminalBindingCheckRequest): Promise<TerminalBindingCheckResult> =>
+    ipcRenderer.invoke('terminal:check-binding', request),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
   input: (id: string, data: string): void => ipcRenderer.send('terminal:input', id, data),
@@ -34,5 +45,21 @@ const windowApi = {
   close: (): Promise<void> => ipcRenderer.invoke('window:close')
 };
 
+const settingsApi = {
+  load: (): Promise<AppSettings> => ipcRenderer.invoke('settings:load'),
+  save: (settings: AppSettings): Promise<AppSettings> => ipcRenderer.invoke('settings:save', settings)
+};
+
+const conversationApi = {
+  list: (): Promise<ConversationStore> => ipcRenderer.invoke('conversation:list'),
+  create: (request: ConversationCreateRequest): Promise<ConversationStore> =>
+    ipcRenderer.invoke('conversation:create', request),
+  touch: (id: string): Promise<ConversationStore> => ipcRenderer.invoke('conversation:touch', id),
+  delete: (id: string): Promise<ConversationStore> => ipcRenderer.invoke('conversation:delete', id),
+  chooseProject: (): Promise<string | null> => ipcRenderer.invoke('conversation:choose-project')
+};
+
 contextBridge.exposeInMainWorld('terminalApi', terminalApi);
 contextBridge.exposeInMainWorld('windowApi', windowApi);
+contextBridge.exposeInMainWorld('settingsApi', settingsApi);
+contextBridge.exposeInMainWorld('conversationApi', conversationApi);

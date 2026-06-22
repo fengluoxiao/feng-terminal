@@ -8,9 +8,12 @@ import type { CliId } from '../../shared/terminal';
 
 interface TerminalPaneProps {
   profileId: CliId;
+  fontSize: number;
+  cwd?: string;
+  extraArgs?: string[];
 }
 
-export function TerminalPane({ profileId }: TerminalPaneProps): ReactNode {
+export function TerminalPane({ profileId, fontSize, cwd, extraArgs }: TerminalPaneProps): ReactNode {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -26,7 +29,7 @@ export function TerminalPane({ profileId }: TerminalPaneProps): ReactNode {
       cursorBlink: true,
       cursorStyle: 'bar',
       fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
-      fontSize: 14,
+      fontSize,
       lineHeight: 1.42,
       letterSpacing: 0,
       scrollback: 12000,
@@ -72,7 +75,9 @@ export function TerminalPane({ profileId }: TerminalPaneProps): ReactNode {
       .create({
         profileId,
         cols: terminal.cols,
-        rows: terminal.rows
+        rows: terminal.rows,
+        cwd,
+        extraArgs
       })
       .then((session) => {
         if (disposed) {
@@ -82,6 +87,9 @@ export function TerminalPane({ profileId }: TerminalPaneProps): ReactNode {
         sessionIdRef.current = session.id;
         setStatus('ready');
         setSessionLabel(`${session.profile.name}${session.pid ? ` · ${session.pid}` : ''}`);
+        if (session.warning) {
+          terminal.writeln(`\r\n${session.warning}\r\n`);
+        }
       })
       .catch((error: unknown) => {
         setStatus('closed');
@@ -124,7 +132,7 @@ export function TerminalPane({ profileId }: TerminalPaneProps): ReactNode {
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [profileId]);
+  }, [cwd, extraArgs, fontSize, profileId]);
 
   return (
     <div className="terminal-frame">

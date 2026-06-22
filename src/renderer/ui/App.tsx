@@ -1,17 +1,26 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BadgeCheck,
   Bot,
+  BriefcaseBusiness,
   ChevronDown,
+  Check,
   CircleStop,
   Command,
   Cpu,
+  Keyboard,
+  Link,
+  MessageSquare,
+  Monitor,
   Maximize2,
   MessageSquarePlus,
   Minus,
   PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RotateCcw,
+  Settings,
   Sparkles,
   Square,
   TerminalSquare,
@@ -19,7 +28,10 @@ import {
   XIcon
 } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import type { CliId, CliProfile } from '../../shared/terminal';
+import type { ConversationMode, ConversationRecord, ConversationStore } from '../../shared/conversation';
+import { defaultCliBindings, defaultSettings } from '../../shared/settings';
+import type { AppSettings, CliBinding } from '../../shared/settings';
+import type { CliId, CliProfile, ShellOption } from '../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
 
 const profileIcons: Record<CliId, typeof TerminalSquare> = {
@@ -32,42 +44,340 @@ const profileIcons: Record<CliId, typeof TerminalSquare> = {
   kimi: Sparkles
 };
 
+const translations = {
+  en: {
+    appName: 'Island Light Console',
+    appMenu: ['File', 'Edit', 'View', 'Window', 'Help'],
+    search: 'Search sessions, agents, commands',
+    newTerminal: 'New terminal',
+    newConversation: 'New conversation',
+    expandConversation: 'Expand conversations',
+    collapseConversation: 'Collapse conversations',
+    restartTerminal: 'Restart active terminal',
+    stopTerminal: 'Stop active terminal',
+    toggleSidebar: 'Toggle sidebar',
+    focusMode: 'Focus mode',
+    settings: 'Settings',
+    terminal: 'Terminal',
+    agents: 'Agents',
+    conversations: 'Conversations',
+    project: 'Project',
+    projectPath: 'Project directory',
+    chooseProject: 'Choose',
+    recentProjects: 'Recent projects',
+    conversationTitle: 'Conversation title',
+    conversationMode: 'Mode',
+    sessionId: 'Session ID',
+    createConversation: 'Create conversation',
+    cancel: 'Cancel',
+    startNew: 'New',
+    continueLast: 'Continue last',
+    resumeSession: 'Resume session',
+    forkSession: 'Fork session',
+    selected: 'Selected',
+    loading: 'Loading',
+    preparingProfiles: 'Preparing terminal profiles.',
+    preferences: 'Preferences',
+    appearance: 'Appearance',
+    theme: 'Theme',
+    themeDescription: 'Use the light shell for now.',
+    language: 'Language',
+    languageDescription: 'Choose the interface language.',
+    nativeMaterial: 'Native material',
+    nativeMaterialDescription: 'Windows acrylic and macOS vibrancy.',
+    terminalGroup: 'Terminal',
+    system: 'System',
+    shortcuts: 'Shortcuts',
+    terminalBinding: 'Terminal bindings',
+    fontSize: 'Font size',
+    fontSizeDescription: 'Controls new terminal panes.',
+    shellProfile: 'Shell profile',
+    shellProfileDescription: 'Default profile for new sessions.',
+    shellCommand: 'Shell',
+    shellCommandDescription: 'Detected from this system.',
+    behavior: 'Behavior',
+    confirmClose: 'Confirm close',
+    confirmCloseDescription: 'Ask before closing running sessions.',
+    openLinksExternally: 'Open links externally',
+    openLinksExternallyDescription: 'Use the system browser for terminal links.',
+    shortcutCommandPalette: 'Command palette',
+    shortcutCommandPaletteValue: '⌘K / Ctrl+K',
+    shortcutNewTerminal: 'New terminal',
+    shortcutNewTerminalValue: 'Ctrl+Shift+T',
+    bindingsDescription: 'Commands are used when a new terminal is created.',
+    commandPath: 'Command or path',
+    arguments: 'Arguments',
+    bindingPlaceholder: 'command, absolute path, or npx package',
+    checkBinding: 'Check binding',
+    themes: {
+      light: 'Light',
+      system: 'System',
+      dark: 'Dark'
+    },
+    languages: {
+      system: 'System',
+      en: 'English',
+      'zh-CN': '简体中文'
+    }
+  },
+  'zh-CN': {
+    appName: 'Island Light Console',
+    appMenu: ['文件', '编辑', '视图', '窗口', '帮助'],
+    search: '搜索会话、代理、命令',
+    newTerminal: '新建终端',
+    newConversation: '新建对话',
+    expandConversation: '展开对话',
+    collapseConversation: '收起对话',
+    restartTerminal: '重启当前终端',
+    stopTerminal: '停止当前终端',
+    toggleSidebar: '切换侧边栏',
+    focusMode: '专注模式',
+    settings: '设置',
+    terminal: '终端',
+    agents: '代理',
+    conversations: '对话',
+    project: '项目',
+    projectPath: '项目目录',
+    chooseProject: '选择',
+    recentProjects: '最近项目',
+    conversationTitle: '对话标题',
+    conversationMode: '模式',
+    sessionId: '会话 ID',
+    createConversation: '创建对话',
+    cancel: '取消',
+    startNew: '新对话',
+    continueLast: '继续最近',
+    resumeSession: '恢复会话',
+    forkSession: '分叉会话',
+    selected: '已选择',
+    loading: '加载中',
+    preparingProfiles: '正在准备终端配置。',
+    preferences: '偏好设置',
+    appearance: '外观',
+    theme: '主题',
+    themeDescription: '当前使用浅色界面。',
+    language: '语言',
+    languageDescription: '选择界面显示语言。',
+    nativeMaterial: '系统材质',
+    nativeMaterialDescription: 'Windows acrylic 和 macOS vibrancy。',
+    terminalGroup: '终端',
+    system: '系统',
+    shortcuts: '快捷键',
+    terminalBinding: '终端绑定',
+    fontSize: '字体大小',
+    fontSizeDescription: '控制新终端面板。',
+    shellProfile: 'Shell 配置',
+    shellProfileDescription: '新会话的默认配置。',
+    shellCommand: 'Shell',
+    shellCommandDescription: '根据当前系统检测。',
+    behavior: '行为',
+    confirmClose: '关闭确认',
+    confirmCloseDescription: '关闭运行中的会话前询问。',
+    openLinksExternally: '外部打开链接',
+    openLinksExternallyDescription: '使用系统浏览器打开终端链接。',
+    shortcutCommandPalette: '命令面板',
+    shortcutCommandPaletteValue: '⌘K / Ctrl+K',
+    shortcutNewTerminal: '新建终端',
+    shortcutNewTerminalValue: 'Ctrl+Shift+T',
+    bindingsDescription: '新建终端时会使用这里配置的命令。',
+    commandPath: '命令或路径',
+    arguments: '参数',
+    bindingPlaceholder: '命令、绝对路径或 npx 包',
+    checkBinding: '检测绑定',
+    themes: {
+      light: '浅色',
+      system: '跟随系统',
+      dark: '深色'
+    },
+    languages: {
+      system: '跟随系统',
+      en: 'English',
+      'zh-CN': '简体中文'
+    }
+  }
+} as const;
+
+type Translation = (typeof translations)[keyof typeof translations];
+type ResolvedLanguage = keyof typeof translations;
+
+function resolveLanguage(language: AppSettings['language']): ResolvedLanguage {
+  if (language !== 'system') return language;
+  return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+}
+
 interface SessionTab {
   id: string;
   profileId: CliId;
   title: string;
+  cwd?: string;
+  extraArgs?: string[];
+  conversationId?: string;
+  projectPath?: string;
+}
+
+const modeOptions: ConversationMode[] = ['new', 'resume-last', 'resume-id', 'fork'];
+
+function getSupportedConversationModes(cliId: CliId): ConversationMode[] {
+  if (cliId === 'codex' || cliId === 'opencode') return modeOptions;
+  if (cliId === 'claude') return ['new', 'resume-last', 'resume-id'];
+  return ['new'];
 }
 
 export function App(): ReactNode {
   const [profiles, setProfiles] = useState<CliProfile[]>([]);
+  const [availableProfileIds, setAvailableProfileIds] = useState<CliId[]>([]);
+  const [shellOptions, setShellOptions] = useState<ShellOption[]>([]);
+  const [conversationStore, setConversationStore] = useState<ConversationStore>({
+    conversations: [],
+    recentProjectPaths: []
+  });
+  const [conversationDialogOpen, setConversationDialogOpen] = useState(false);
   const [activeProfile, setActiveProfile] = useState<CliId>('codex');
+  const [activeView, setActiveView] = useState<'terminal' | 'settings'>('terminal');
+  const [conversationPanelOpen, setConversationPanelOpen] = useState(true);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [tabs, setTabs] = useState<SessionTab[]>([
     { id: crypto.randomUUID(), profileId: 'shell', title: 'Shell' }
   ]);
   const [activeTabId, setActiveTabId] = useState(tabs[0].id);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+  const resolvedLanguage = resolveLanguage(settings.language);
+  const t = translations[resolvedLanguage];
 
   useEffect(() => {
     void window.terminalApi.listProfiles().then((items) => {
       setProfiles(items);
       if (items.some((item) => item.id === 'codex')) setActiveProfile('codex');
     });
+    void window.terminalApi.listShells().then(setShellOptions);
   }, []);
 
-  const currentProfile = useMemo(
-    () => profiles.find((profile) => profile.id === activeProfile) ?? profiles[0],
-    [activeProfile, profiles]
+  useEffect(() => {
+    void window.settingsApi.load().then((loadedSettings) => {
+      setSettings(loadedSettings);
+      setActiveProfile(loadedSettings.defaultProfileId);
+    });
+    void window.conversationApi.list().then(setConversationStore);
+  }, []);
+
+  useEffect(() => {
+    if (profiles.length === 0) return;
+
+    let canceled = false;
+
+    async function refreshAvailableProfiles(): Promise<void> {
+      const results = await Promise.all(
+        profiles.map(async (profile) => {
+          const binding = settings.cliBindings[profile.id] ?? defaultCliBindings[profile.id];
+          const command = binding?.command || profile.command;
+          try {
+            const result = await window.terminalApi.checkBinding({ command });
+            return result.available ? profile.id : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (canceled) return;
+
+      const nextIds = results.filter((id): id is CliId => Boolean(id));
+      setAvailableProfileIds(nextIds);
+
+      if (nextIds.length > 0 && !nextIds.includes(activeProfile)) {
+        setActiveProfile(nextIds[0]);
+      }
+    }
+
+    void refreshAvailableProfiles();
+
+    return () => {
+      canceled = true;
+    };
+  }, [activeProfile, profiles, settings.cliBindings]);
+
+  const visibleProfiles = useMemo(
+    () => profiles.filter((profile) => availableProfileIds.includes(profile.id)),
+    [availableProfileIds, profiles]
   );
 
+  const currentProfile = useMemo(
+    () => visibleProfiles.find((profile) => profile.id === activeProfile) ?? visibleProfiles[0],
+    [activeProfile, visibleProfiles]
+  );
+
+  const conversationsByProject = useMemo(() => {
+    const groups = new Map<string, ConversationRecord[]>();
+    for (const conversation of conversationStore.conversations) {
+      const items = groups.get(conversation.projectPath) ?? [];
+      groups.set(conversation.projectPath, [...items, conversation]);
+    }
+    return Array.from(groups.entries()).map(([projectPath, conversations]) => ({
+      projectPath,
+      conversations
+    }));
+  }, [conversationStore.conversations]);
+
+  function getConversationArgs(conversation: ConversationRecord): string[] {
+    if (conversation.mode === 'new') return [];
+
+    if (conversation.cliId === 'codex') {
+      if (conversation.mode === 'resume-last') return ['resume', '--last'];
+      if (conversation.mode === 'resume-id' && conversation.sessionId) return ['resume', conversation.sessionId];
+      if (conversation.mode === 'fork' && conversation.sessionId) return ['fork', conversation.sessionId];
+      return [];
+    }
+
+    if (conversation.cliId === 'claude') {
+      if (conversation.mode === 'resume-last') return ['--continue'];
+      if ((conversation.mode === 'resume-id' || conversation.mode === 'fork') && conversation.sessionId) {
+        return ['--resume', conversation.sessionId];
+      }
+      return [];
+    }
+
+    if (conversation.cliId === 'opencode') {
+      const args = [conversation.projectPath];
+      if (conversation.mode === 'resume-last') return [...args, '--continue'];
+      if (conversation.mode === 'resume-id' && conversation.sessionId) return [...args, '--session', conversation.sessionId];
+      if (conversation.mode === 'fork' && conversation.sessionId) return [...args, '--fork', conversation.sessionId];
+      return args;
+    }
+
+    return [];
+  }
+
   function createTab(profileId = activeProfile): void {
-    const profile = profiles.find((item) => item.id === profileId);
+    const targetProfileId = visibleProfiles.some((profile) => profile.id === profileId)
+      ? profileId
+      : visibleProfiles[0]?.id ?? profileId;
+    const profile = profiles.find((item) => item.id === targetProfileId);
     const tab = {
       id: crypto.randomUUID(),
-      profileId,
+      profileId: targetProfileId,
       title: profile?.name ?? 'Terminal'
     };
     setTabs((items) => [...items, tab]);
     setActiveTabId(tab.id);
+    setActiveView('terminal');
+  }
+
+  function openConversation(conversation: ConversationRecord): void {
+    const profile = profiles.find((item) => item.id === conversation.cliId);
+    const tab = {
+      id: crypto.randomUUID(),
+      profileId: conversation.cliId,
+      title: conversation.title || profile?.name || 'Conversation',
+      cwd: conversation.projectPath,
+      extraArgs: getConversationArgs(conversation),
+      conversationId: conversation.id,
+      projectPath: conversation.projectPath
+    };
+
+    setTabs((items) => [...items, tab]);
+    setActiveTabId(tab.id);
+    setActiveProfile(conversation.cliId);
+    setActiveView('terminal');
+    void window.conversationApi.touch(conversation.id).then(setConversationStore);
   }
 
   function closeActiveTab(): void {
@@ -103,16 +413,23 @@ export function App(): ReactNode {
     }
   }
 
+  function updateSettings(patch: Partial<AppSettings>): void {
+    const nextSettings = { ...settings, ...patch };
+    setSettings(nextSettings);
+    if (patch.defaultProfileId) setActiveProfile(patch.defaultProfileId);
+    void window.settingsApi.save(nextSettings).then(setSettings);
+  }
+
   return (
     <Tooltip.Provider delayDuration={450}>
       <main className="app-shell">
         <header className="window-chrome">
           <nav className="app-menu" aria-label="Application menu">
-            <button type="button">File</button>
-            <button type="button">Edit</button>
-            <button type="button">View</button>
-            <button type="button">Window</button>
-            <button type="button">Help</button>
+            {t.appMenu.map((item) => (
+              <button key={item} type="button">
+                {item}
+              </button>
+            ))}
           </nav>
           <div className="window-controls">
             <button type="button" aria-label="Minimize" onClick={() => void window.windowApi.minimize()}>
@@ -133,21 +450,30 @@ export function App(): ReactNode {
 
         <aside className="rail">
           <div className="traffic-spacer" />
-          <IconButton label="New terminal" onClick={() => createTab(activeProfile)}>
+          <IconButton label={t.newConversation} onClick={() => setConversationDialogOpen(true)}>
             <MessageSquarePlus size={17} />
           </IconButton>
-          <IconButton label="Restart active terminal" onClick={restartActiveTab}>
+          <IconButton label={t.restartTerminal} onClick={restartActiveTab}>
             <RotateCcw size={17} />
           </IconButton>
-          <IconButton label="Stop active terminal" onClick={closeActiveTab}>
+          <IconButton label={t.stopTerminal} onClick={closeActiveTab}>
             <CircleStop size={17} />
           </IconButton>
           <div className="rail-divider" />
-          <IconButton label="Toggle sidebar">
-            <PanelLeftClose size={17} />
+          <IconButton
+            label={conversationPanelOpen ? t.collapseConversation : t.expandConversation}
+            onClick={() => {
+              setConversationPanelOpen((isOpen) => !isOpen);
+              setActiveView('terminal');
+            }}
+          >
+            {conversationPanelOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
           </IconButton>
-          <IconButton label="Focus mode">
+          <IconButton label={t.focusMode}>
             <Maximize2 size={16} />
+          </IconButton>
+          <IconButton label={t.settings} onClick={() => setActiveView('settings')}>
+            <Settings size={16} />
           </IconButton>
         </aside>
 
@@ -155,99 +481,699 @@ export function App(): ReactNode {
           <header className="titlebar">
             <div>
               <p className="eyebrow">TUI AI Terminal</p>
-              <h1>Island Light Console</h1>
+              <h1>{t.appName}</h1>
             </div>
             <div className="command-palette">
               <Command size={15} />
-              <span>Search sessions, agents, commands</span>
+              <span>{t.search}</span>
               <kbd>⌘K</kbd>
             </div>
           </header>
 
-          <div className="content-grid">
-            <aside className="agent-panel">
-              <div className="panel-heading">
-                <span>Agents</span>
-                <button type="button" onClick={() => createTab(activeProfile)}>
-                  <Plus size={15} />
-                </button>
-              </div>
-              <div className="agent-list">
-                {profiles.map((profile) => {
-                  const Icon = profileIcons[profile.id];
-                  return (
-                    <button
-                      className={profile.id === activeProfile ? 'agent-card selected' : 'agent-card'}
-                      key={profile.id}
-                      type="button"
-                      onClick={() => setActiveProfile(profile.id)}
-                      onDoubleClick={() => createTab(profile.id)}
-                    >
-                      <Icon size={17} />
+          {conversationDialogOpen ? (
+            <ConversationDialog
+              profiles={visibleProfiles}
+              recentProjectPaths={conversationStore.recentProjectPaths}
+              t={t}
+              onCancel={() => setConversationDialogOpen(false)}
+              onCreate={(request) => {
+                void window.conversationApi.create(request).then((store) => {
+                  setConversationStore(store);
+                  const conversation = store.conversations[0];
+                  if (conversation) openConversation(conversation);
+                  setConversationDialogOpen(false);
+                });
+              }}
+            />
+          ) : null}
+
+          {activeView === 'settings' ? (
+            <SettingsView
+              profiles={profiles}
+              shellOptions={shellOptions}
+              settings={settings}
+              t={t}
+              onBack={() => setActiveView('terminal')}
+              onChange={updateSettings}
+            />
+          ) : (
+            <div className={conversationPanelOpen ? 'content-grid' : 'content-grid conversation-collapsed'}>
+              {conversationPanelOpen ? (
+              <aside className="agent-panel">
+                <div className="panel-heading">
+                  <span>{t.conversations}</span>
+                  <div className="panel-actions">
+                    <button type="button" onClick={() => setConversationDialogOpen(true)}>
+                      <Plus size={14} />
+                      <span>{t.newConversation}</span>
+                    </button>
+                    <button type="button" onClick={() => setConversationPanelOpen(false)}>
+                      <PanelLeftClose size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div className="agent-list">
+                  {conversationsByProject.length === 0 ? (
+                    <button className="empty-conversation-button" type="button" onClick={() => setConversationDialogOpen(true)}>
+                      <MessageSquarePlus size={17} />
                       <span>
-                        <strong>{profile.name}</strong>
-                        <small>{profile.command}</small>
+                        <strong>{t.newConversation}</strong>
+                        <small>{t.chooseProject}</small>
                       </span>
                     </button>
-                  );
-                })}
-              </div>
+                  ) : null}
+                  {conversationsByProject.map((group) => (
+                    <div className="conversation-project" key={group.projectPath}>
+                      <div className="conversation-project-title">
+                        <BriefcaseBusiness size={13} />
+                        <span>{group.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? group.projectPath}</span>
+                      </div>
+                      {group.conversations.map((conversation) => {
+                        const Icon = profileIcons[conversation.cliId] ?? MessageSquare;
+                        return (
+                          <div className="conversation-item" key={conversation.id}>
+                          <button
+                            className={conversation.id === activeTab.conversationId ? 'agent-card selected' : 'agent-card'}
+                            type="button"
+                            onClick={() => openConversation(conversation)}
+                          >
+                            <Icon size={17} />
+                            <span>
+                              <strong>{conversation.title}</strong>
+                              <small>{conversation.cliId} · {conversation.mode}</small>
+                            </span>
+                          </button>
+                          <button
+                            className="conversation-delete"
+                            type="button"
+                            aria-label="Delete conversation"
+                            onClick={() => {
+                              void window.conversationApi.delete(conversation.id).then(setConversationStore);
+                            }}
+                          >
+                            <X size={12} />
+                          </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
 
-              <div className="profile-detail">
-                <span>Selected</span>
-                <strong>{currentProfile?.name ?? 'Loading'}</strong>
-                <p>{currentProfile?.description ?? 'Preparing terminal profiles.'}</p>
-              </div>
-            </aside>
+                <div className="profile-detail">
+                  <span>{t.selected}</span>
+                  <strong>{currentProfile?.name ?? t.loading}</strong>
+                  <p>{currentProfile?.description ?? t.preparingProfiles}</p>
+                </div>
+              </aside>
+              ) : null}
+              {!conversationPanelOpen ? (
+                <button
+                  className="conversation-expand-button"
+                  type="button"
+                  onClick={() => setConversationPanelOpen(true)}
+                >
+                  <PanelLeftOpen size={15} />
+                  <span>{t.expandConversation}</span>
+                </button>
+              ) : null}
 
-            <section className="terminal-stage">
-              <div className="tabs">
-                {tabs.map((tab) => {
-                  const Icon = profileIcons[tab.profileId] ?? TerminalSquare;
-                  return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={tab.id === activeTab.id ? 'tab active' : 'tab'}
-                    onClick={() => setActiveTabId(tab.id)}
-                  >
-                    <Icon size={14} />
-                    <span>{tab.title}</span>
-                    <span
-                      className="tab-close"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Close ${tab.title}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeTab(tab.id);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
+              <section className="terminal-stage">
+                <div className="tabs">
+                  {tabs.map((tab) => {
+                    const Icon = profileIcons[tab.profileId] ?? TerminalSquare;
+                    return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={tab.id === activeTab.id ? 'tab active' : 'tab'}
+                      onClick={() => setActiveTabId(tab.id)}
+                    >
+                      <Icon size={14} />
+                      <span>{tab.title}</span>
+                      <span
+                        className="tab-close"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Close ${tab.title}`}
+                        onClick={(event) => {
                           event.stopPropagation();
                           closeTab(tab.id);
-                        }
-                      }}
-                    >
-                      <XIcon size={12} />
-                    </span>
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            closeTab(tab.id);
+                          }
+                        }}
+                      >
+                        <XIcon size={12} />
+                      </span>
+                    </button>
+                    );
+                  })}
+                  <button className="tab-tool" type="button" aria-label="New tab" onClick={() => createTab(activeProfile)}>
+                    <Plus size={14} />
                   </button>
-                  );
-                })}
-                <button className="tab-tool" type="button" aria-label="New tab" onClick={() => createTab(activeProfile)}>
-                  <Plus size={14} />
-                </button>
-                <button className="tab-tool" type="button" aria-label="Tab menu">
-                  <ChevronDown size={14} />
-                </button>
-              </div>
-              <TerminalPane key={activeTab.id} profileId={activeTab.profileId} />
-            </section>
-          </div>
+                  <button className="tab-tool" type="button" aria-label="Tab menu">
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
+                <TerminalPane
+                  key={activeTab.id}
+                  cwd={activeTab.cwd}
+                  extraArgs={activeTab.extraArgs}
+                  fontSize={settings.terminalFontSize}
+                  profileId={activeTab.profileId}
+                />
+              </section>
+            </div>
+          )}
         </section>
       </main>
     </Tooltip.Provider>
+  );
+}
+
+function SettingsView({
+  profiles,
+  shellOptions,
+  settings,
+  t,
+  onBack,
+  onChange
+}: {
+  profiles: CliProfile[];
+  shellOptions: ShellOption[];
+  settings: AppSettings;
+  t: Translation;
+  onBack: () => void;
+  onChange: (patch: Partial<AppSettings>) => void;
+}): ReactNode {
+  const [bindingChecks, setBindingChecks] = useState<
+    Partial<Record<CliId, 'idle' | 'checking' | 'available' | 'missing'>>
+  >({});
+  const [activeCategory, setActiveCategory] = useState<
+    'personalization' | 'system' | 'behavior' | 'shortcuts' | 'terminalBinding'
+  >('personalization');
+  const categories = [
+    { id: 'personalization', icon: Monitor, label: t.appearance },
+    { id: 'system', icon: Settings, label: t.system },
+    { id: 'behavior', icon: Settings, label: t.behavior },
+    { id: 'shortcuts', icon: Keyboard, label: t.shortcuts },
+    { id: 'terminalBinding', icon: Link, label: t.terminalBinding }
+  ] as const;
+
+  function getBinding(profile: CliProfile): CliBinding {
+    return (
+      settings.cliBindings[profile.id] ??
+      defaultCliBindings[profile.id] ?? {
+        command: profile.command,
+        args: profile.args.join(' ')
+      }
+    );
+  }
+
+  function updateBinding(profileId: CliId, patch: Partial<CliBinding>): void {
+    const currentBinding =
+      settings.cliBindings[profileId] ?? defaultCliBindings[profileId] ?? { command: '', args: '' };
+
+    onChange({
+      cliBindings: {
+        ...settings.cliBindings,
+        [profileId]: {
+          ...currentBinding,
+          ...patch
+        }
+      }
+    });
+    setBindingChecks((items) => ({ ...items, [profileId]: 'idle' }));
+  }
+
+  function checkBinding(profile: CliProfile): void {
+    const binding = getBinding(profile);
+    const command = binding.command || profile.command;
+
+    setBindingChecks((items) => ({ ...items, [profile.id]: 'checking' }));
+    void window.terminalApi
+      .checkBinding({ command })
+      .then((result) => {
+        setBindingChecks((items) => ({
+          ...items,
+          [profile.id]: result.available ? 'available' : 'missing'
+        }));
+      })
+      .catch(() => {
+        setBindingChecks((items) => ({ ...items, [profile.id]: 'missing' }));
+      });
+  }
+
+  return (
+    <section className="settings-page">
+      <div className="settings-header">
+        <div>
+          <p className="eyebrow">{t.settings}</p>
+          <h2>{t.preferences}</h2>
+        </div>
+        <button className="settings-back" type="button" onClick={onBack}>
+          <TerminalSquare size={15} />
+          {t.terminal}
+        </button>
+      </div>
+
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label={t.settings}>
+          {categories.map((category) => {
+            const Icon = category.icon;
+            return (
+              <button
+                className={category.id === activeCategory ? 'active' : undefined}
+                key={category.id}
+                type="button"
+                onClick={() => setActiveCategory(category.id)}
+              >
+                <Icon size={16} />
+                <span>{category.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="settings-grid">
+        {activeCategory === 'personalization' ? (
+          <section className="settings-group">
+          <div className="settings-group-title">
+            <Monitor size={17} />
+            <span>{t.appearance}</span>
+          </div>
+          <label className="setting-row">
+            <span>
+              <strong>{t.theme}</strong>
+              <small>{t.themeDescription}</small>
+            </span>
+            <SelectMenu
+              options={[
+                { label: t.themes.light, value: 'light' },
+                { label: t.themes.system, value: 'system' },
+                { label: t.themes.dark, value: 'dark' }
+              ]}
+              value={settings.theme}
+              onChange={(value) => onChange({ theme: value as AppSettings['theme'] })}
+            />
+          </label>
+          <label className="setting-row">
+            <span>
+              <strong>{t.language}</strong>
+              <small>{t.languageDescription}</small>
+            </span>
+            <SelectMenu
+              options={[
+                { label: t.languages.system, value: 'system' },
+                { label: t.languages.en, value: 'en' },
+                { label: t.languages['zh-CN'], value: 'zh-CN' }
+              ]}
+              value={settings.language}
+              onChange={(value) => onChange({ language: value as AppSettings['language'] })}
+            />
+          </label>
+          <label className="setting-row">
+            <span>
+              <strong>{t.nativeMaterial}</strong>
+              <small>{t.nativeMaterialDescription}</small>
+            </span>
+            <input
+              checked={settings.nativeMaterial}
+              type="checkbox"
+              onChange={(event) => onChange({ nativeMaterial: event.target.checked })}
+            />
+          </label>
+          </section>
+        ) : null}
+
+        {activeCategory === 'system' ? (
+          <section className="settings-group">
+          <div className="settings-group-title">
+            <TerminalSquare size={17} />
+            <span>{t.system}</span>
+          </div>
+          <label className="setting-row">
+            <span>
+              <strong>{t.fontSize}</strong>
+              <small>{t.fontSizeDescription}</small>
+            </span>
+            <input
+              max={22}
+              min={11}
+              type="number"
+              value={settings.terminalFontSize}
+              onChange={(event) => onChange({ terminalFontSize: Number(event.target.value) })}
+            />
+          </label>
+          </section>
+        ) : null}
+
+        {activeCategory === 'terminalBinding' ? (
+          <section className="settings-group">
+          <div className="settings-group-title">
+            <Link size={17} />
+            <span>{t.terminalBinding}</span>
+          </div>
+          <label className="setting-row">
+            <span>
+              <strong>{t.shellProfile}</strong>
+              <small>{t.shellProfileDescription}</small>
+            </span>
+            <SelectMenu
+              options={profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
+              value={settings.defaultProfileId}
+              onChange={(value) => onChange({ defaultProfileId: value as CliId })}
+            />
+          </label>
+          <div className="binding-list">
+            {profiles.map((profile) => {
+              const binding = getBinding(profile);
+              const isShell = profile.id === 'shell';
+              const checkState = bindingChecks[profile.id] ?? 'idle';
+              const shellSelectOptions =
+                shellOptions.length > 0
+                  ? shellOptions.map((shell) => ({
+                      label: shell.label,
+                      value: shell.command
+                    }))
+                  : [{ label: profile.command, value: profile.command }];
+              return (
+                <div className="binding-card" key={profile.id}>
+                  <div className="binding-title">
+                    <strong>{profile.name}</strong>
+                    <small>{profile.id}</small>
+                  </div>
+                  <label>
+                    <span>{isShell ? t.shellCommand : t.commandPath}</span>
+                    {isShell ? (
+                      <SelectMenu
+                        options={shellSelectOptions}
+                        value={binding.command || shellSelectOptions[0]?.value || profile.command}
+                        onChange={(value) => updateBinding(profile.id, { command: value })}
+                      />
+                    ) : (
+                      <input
+                        spellCheck={false}
+                        type="text"
+                        value={binding.command}
+                        placeholder={profile.command || t.bindingPlaceholder}
+                        onChange={(event) => updateBinding(profile.id, { command: event.target.value })}
+                      />
+                    )}
+                  </label>
+                  <label>
+                    <span>{t.arguments}</span>
+                    <input
+                      spellCheck={false}
+                      type="text"
+                      value={binding.args}
+                      placeholder={profile.args.join(' ')}
+                      onChange={(event) => updateBinding(profile.id, { args: event.target.value })}
+                    />
+                  </label>
+                  <button
+                    className="binding-check-button"
+                    type="button"
+                    aria-label={t.checkBinding}
+                    title={t.checkBinding}
+                    onClick={() => checkBinding(profile)}
+                  >
+                    <BadgeCheck size={15} strokeWidth={1.8} />
+                    <span className={`binding-check-dot ${checkState}`} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="settings-note">{t.bindingsDescription}</p>
+          </section>
+        ) : null}
+
+        {activeCategory === 'behavior' ? (
+          <section className="settings-group">
+          <div className="settings-group-title">
+            <Settings size={17} />
+            <span>{t.behavior}</span>
+          </div>
+          <label className="setting-row">
+            <span>
+              <strong>{t.confirmClose}</strong>
+              <small>{t.confirmCloseDescription}</small>
+            </span>
+            <input
+              checked={settings.confirmClose}
+              type="checkbox"
+              onChange={(event) => onChange({ confirmClose: event.target.checked })}
+            />
+          </label>
+          <label className="setting-row">
+            <span>
+              <strong>{t.openLinksExternally}</strong>
+              <small>{t.openLinksExternallyDescription}</small>
+            </span>
+            <input
+              checked={settings.openLinksExternally}
+              type="checkbox"
+              onChange={(event) => onChange({ openLinksExternally: event.target.checked })}
+            />
+          </label>
+          </section>
+        ) : null}
+
+        {activeCategory === 'shortcuts' ? (
+          <section className="settings-group">
+          <div className="settings-group-title">
+            <Keyboard size={17} />
+            <span>{t.shortcuts}</span>
+          </div>
+          <div className="setting-row">
+            <span>
+              <strong>{t.shortcutCommandPalette}</strong>
+              <small>{t.search}</small>
+            </span>
+            <kbd>{t.shortcutCommandPaletteValue}</kbd>
+          </div>
+          <div className="setting-row">
+            <span>
+              <strong>{t.shortcutNewTerminal}</strong>
+              <small>{t.newTerminal}</small>
+            </span>
+            <kbd>{t.shortcutNewTerminalValue}</kbd>
+          </div>
+          </section>
+        ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConversationDialog({
+  profiles,
+  recentProjectPaths,
+  t,
+  onCancel,
+  onCreate
+}: {
+  profiles: CliProfile[];
+  recentProjectPaths: string[];
+  t: Translation;
+  onCancel: () => void;
+  onCreate: (request: {
+    cliId: CliId;
+    projectPath: string;
+    title?: string;
+    mode: ConversationMode;
+    sessionId?: string;
+  }) => void;
+}): ReactNode {
+  const [cliId, setCliId] = useState<CliId>(profiles[0]?.id ?? 'shell');
+  const [projectPath, setProjectPath] = useState(recentProjectPaths[0] ?? '');
+  const [title, setTitle] = useState('');
+  const [mode, setMode] = useState<ConversationMode>('new');
+  const [sessionId, setSessionId] = useState('');
+  const selectedProfile = profiles.find((profile) => profile.id === cliId) ?? profiles[0];
+  const supportedModes = useMemo(() => getSupportedConversationModes(cliId), [cliId]);
+
+  useEffect(() => {
+    if (!supportedModes.includes(mode)) setMode('new');
+  }, [mode, supportedModes]);
+
+  function submit(): void {
+    if (!projectPath.trim()) return;
+    onCreate({
+      cliId,
+      projectPath: projectPath.trim(),
+      title: title.trim() || undefined,
+      mode,
+      sessionId: sessionId.trim() || undefined
+    });
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section className="conversation-dialog" role="dialog" aria-modal="true">
+        <header className="conversation-dialog-header">
+          <div>
+            <p className="eyebrow">{t.newConversation}</p>
+            <h2>{selectedProfile?.name ?? t.terminal}</h2>
+          </div>
+          <button type="button" onClick={onCancel}>
+            <X size={15} />
+          </button>
+        </header>
+
+        <div className="conversation-form">
+          <label>
+            <span>CLI</span>
+            <SelectMenu
+              options={profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
+              value={cliId}
+              onChange={(value) => setCliId(value as CliId)}
+            />
+          </label>
+
+          <label>
+            <span>{t.conversationMode}</span>
+            <SelectMenu
+              options={supportedModes.map((item) => ({
+                label:
+                  item === 'new'
+                    ? t.startNew
+                    : item === 'resume-last'
+                      ? t.continueLast
+                      : item === 'resume-id'
+                        ? t.resumeSession
+                        : t.forkSession,
+                value: item
+              }))}
+              value={mode}
+              onChange={(value) => setMode(value as ConversationMode)}
+            />
+          </label>
+
+          <label className="conversation-wide">
+            <span>{t.projectPath}</span>
+            <div className="project-picker">
+              <input
+                spellCheck={false}
+                type="text"
+                value={projectPath}
+                onChange={(event) => setProjectPath(event.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void window.conversationApi.chooseProject().then((path) => {
+                    if (path) setProjectPath(path);
+                  });
+                }}
+              >
+                {t.chooseProject}
+              </button>
+            </div>
+          </label>
+
+          {recentProjectPaths.length > 0 ? (
+            <div className="recent-projects conversation-wide">
+              <span>{t.recentProjects}</span>
+              <div>
+                {recentProjectPaths.slice(0, 4).map((path) => (
+                  <button key={path} type="button" onClick={() => setProjectPath(path)}>
+                    {path.split(/[\\/]/).filter(Boolean).pop() ?? path}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <label className="conversation-wide">
+            <span>{t.conversationTitle}</span>
+            <input
+              spellCheck={false}
+              type="text"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+
+          {mode === 'resume-id' || mode === 'fork' ? (
+            <label className="conversation-wide">
+              <span>{t.sessionId}</span>
+              <input
+                spellCheck={false}
+                type="text"
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <footer className="conversation-dialog-actions">
+          <button type="button" onClick={onCancel}>
+            {t.cancel}
+          </button>
+          <button type="button" disabled={!projectPath.trim()} onClick={submit}>
+            {t.createConversation}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function SelectMenu({
+  value,
+  options,
+  onChange
+}: {
+  value: string;
+  options: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  return (
+    <div className="select-menu" onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
+      <button
+        aria-expanded={open}
+        type="button"
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setOpen(false);
+        }}
+      >
+        <span>{selected?.label ?? 'Select'}</span>
+        <ChevronDown size={14} />
+      </button>
+      {open ? (
+        <div className="select-menu-popover">
+          {options.map((option) => (
+            <button
+              className={option.value === value ? 'selected' : undefined}
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              <span className="select-check">{option.value === value ? <Check size={14} /> : null}</span>
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

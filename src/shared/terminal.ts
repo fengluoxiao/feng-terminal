@@ -15,17 +15,34 @@ export interface CliProfile {
   description: string;
 }
 
+export interface ShellOption {
+  label: string;
+  command: string;
+}
+
+export interface TerminalBindingCheckRequest {
+  command: string;
+}
+
+export interface TerminalBindingCheckResult {
+  available: boolean;
+  command: string;
+  resolvedCommand?: string;
+}
+
 export interface TerminalCreateRequest {
   profileId: CliId;
   cols: number;
   rows: number;
   cwd?: string;
+  extraArgs?: string[];
 }
 
 export interface TerminalCreateResult {
   id: string;
   pid?: number;
   profile: CliProfile;
+  warning?: string;
 }
 
 export interface TerminalDataEvent {
