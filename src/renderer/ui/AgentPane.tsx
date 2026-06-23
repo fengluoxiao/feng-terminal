@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, ReactNode } from 'react';
 import { Bot, CheckCircle2, Image, Link2, LoaderCircle, RotateCcw, SendHorizonal, X } from 'lucide-react';
 import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
@@ -214,6 +214,7 @@ export function AgentPane({
   const [referencedContextIds, setReferencedContextIds] = useState<string[]>([]);
   const [codexSkills, setCodexSkills] = useState<AgentSkill[] | null>(null);
   const [sending, setSending] = useState(false);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
   const conversation = useMemo<ConversationRecord | undefined>(
     () => conversationStore.conversations.find((item) => item.id === conversationId),
     [conversationId, conversationStore.conversations]
@@ -282,6 +283,16 @@ export function AgentPane({
         console.error(error);
       });
   }, [codexSkills, profileId]);
+
+  useEffect(() => {
+    if (!active) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = messagesRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, conversationId, messages.length, messages.at(-1)?.content, messages.at(-1)?.status]);
 
   function sendText(value: string, nextAttachments = attachments): void {
     const nextPrompt = value.trim();
@@ -442,7 +453,7 @@ export function AgentPane({
         </span>
       </div>
       <div className={`agent-chat ${profileId ? `agent-chat-${profileId}` : ''}`}>
-        <div className="agent-messages">
+        <div className="agent-messages" ref={messagesRef}>
           {messages.length === 0 ? (
             <div className="agent-empty">
               <strong>{profileName}</strong>
