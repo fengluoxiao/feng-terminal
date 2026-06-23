@@ -221,8 +221,12 @@ button {
   grid-template-columns: 56px minmax(0, 1fr);
   width: 100%;
   height: 100%;
-  background: transparent;
+  background: #eef1f2;
   color: #262c33;
+}
+
+html[data-window-focused="true"] .app-shell {
+  background: transparent;
 }
 
 .app-shell::before {
@@ -232,6 +236,10 @@ button {
   z-index: 0;
   pointer-events: none;
   background: rgba(255, 255, 255, 0.42);
+}
+
+html:not([data-window-focused="true"]) .app-shell::before {
+  background: transparent;
 }
 
 .window-chrome {

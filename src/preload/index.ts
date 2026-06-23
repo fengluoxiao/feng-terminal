@@ -47,7 +47,12 @@ const terminalApi = {
 const windowApi = {
   minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
-  close: (): Promise<void> => ipcRenderer.invoke('window:close')
+  close: (): Promise<void> => ipcRenderer.invoke('window:close'),
+  onFocusState: (callback: (focused: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, focused: boolean) => callback(focused);
+    ipcRenderer.on('window:focus-state', listener);
+    return () => ipcRenderer.removeListener('window:focus-state', listener);
+  }
 };
 
 const petApi = {

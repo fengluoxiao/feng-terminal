@@ -39,6 +39,7 @@ declare global {
       minimize: () => Promise<void>;
       toggleMaximize: () => Promise<void>;
       close: () => Promise<void>;
+      onFocusState: (callback: (focused: boolean) => void) => () => void;
     };
     petApi: {
       focusMain: () => Promise<void>;

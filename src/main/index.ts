@@ -225,6 +225,13 @@ function loadRenderer(window: BrowserWindow, hash = '', focusWhenLoaded = true):
   }
 }
 
+function setWindowFocusState(window: BrowserWindow, focused: boolean, nativeMaterial: boolean): void {
+  window.webContents.send('window:focus-state', focused);
+  if (process.platform === 'darwin') {
+    window.setVibrancy(nativeMaterial ? 'under-window' : null);
+  }
+}
+
 function shutdownApp(): void {
   if (quitting) return;
   quitting = true;
@@ -249,7 +256,7 @@ function createWindow(settings: AppSettings): void {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
     vibrancy: process.platform === 'darwin' && settings.nativeMaterial ? 'under-window' : undefined,
-    visualEffectState: 'active',
+    visualEffectState: 'followWindow',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -259,16 +266,26 @@ function createWindow(settings: AppSettings): void {
   });
   mainWindow = window;
 
-  if (process.platform === 'win32' && settings.nativeMaterial) {
-    window.setBackgroundMaterial('acrylic');
-  }
+  setWindowFocusState(window, window.isFocused(), settings.nativeMaterial);
 
   window.once('ready-to-show', () => {
     window.focus();
   });
 
+  window.on('focus', () => {
+    setWindowFocusState(window, true, settings.nativeMaterial);
+  });
+
+  window.on('blur', () => {
+    setWindowFocusState(window, false, settings.nativeMaterial);
+  });
+
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`Renderer failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+  });
+
+  window.webContents.on('did-finish-load', () => {
+    setWindowFocusState(window, window.isFocused(), settings.nativeMaterial);
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
