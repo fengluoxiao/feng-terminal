@@ -11,6 +11,7 @@ import type {
   ConversationAttachment,
   ConversationCreateRequest,
   ConversationMessage,
+  ConversationReference,
   ConversationRecord,
   ConversationRun,
   ConversationStore,
@@ -55,6 +56,7 @@ function sanitizeConversation(value: Partial<ConversationRecord> | null | undefi
     title: typeof value.title === 'string' && value.title.trim() ? value.title.trim() : basename(projectPath),
     mode,
     sessionId: typeof value.sessionId === 'string' ? value.sessionId.trim() : undefined,
+    linkedConversationIds: sanitizeIdList(value.linkedConversationIds),
     messages: Array.isArray(value.messages)
       ? value.messages.map((message) => sanitizeMessage(message)).filter((item): item is ConversationMessage => Boolean(item))
       : [],
@@ -81,6 +83,7 @@ function sanitizeRun(value: Partial<ConversationRun> | null | undefined): Conver
     status,
     startedAt,
     attachments: sanitizeAttachments(value.attachments),
+    references: sanitizeReferences(value.references),
     finishedAt: typeof value.finishedAt === 'string' ? value.finishedAt : staleRunning ? now : undefined,
     durationMs: typeof value.durationMs === 'number' ? value.durationMs : undefined,
     error: staleRunning ? 'Interrupted.' : typeof value.error === 'string' ? normalizeCodexJsonlText(value.error) : undefined
@@ -101,7 +104,43 @@ function sanitizeMessage(value: Partial<ConversationMessage> | null | undefined)
     content: staleRunning ? 'Interrupted.' : normalizeCodexJsonlText(value.content),
     createdAt,
     status,
-    attachments: sanitizeAttachments(value.attachments)
+    attachments: sanitizeAttachments(value.attachments),
+    references: sanitizeReferences(value.references)
+  };
+}
+
+function sanitizeIdList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim());
+  return ids.length ? Array.from(new Set(ids)).slice(0, 12) : undefined;
+}
+
+function sanitizeReferences(value: unknown): ConversationReference[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const references = value
+    .map((item) => sanitizeReference(item as Partial<ConversationReference> | null | undefined))
+    .filter((item): item is ConversationReference => Boolean(item));
+  return references.length ? references : undefined;
+}
+
+function sanitizeReference(value: Partial<ConversationReference> | null | undefined): ConversationReference | null {
+  if (
+    !value ||
+    typeof value.id !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.projectPath !== 'string' ||
+    !profileIds.includes(value.cliId as CliId)
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    title: value.title,
+    cliId: value.cliId as CliId,
+    projectPath: normalize(value.projectPath)
   };
 }
 
@@ -278,6 +317,9 @@ async function updateConversation(request: ConversationUpdateRequest): Promise<C
             title: request.title?.trim() || conversation.title,
             mode: mode ?? conversation.mode,
             sessionId: request.sessionId?.trim() || conversation.sessionId,
+            linkedConversationIds: request.linkedConversationIds
+              ? sanitizeIdList(request.linkedConversationIds)
+              : conversation.linkedConversationIds,
             updatedAt: now
           }
         : conversation

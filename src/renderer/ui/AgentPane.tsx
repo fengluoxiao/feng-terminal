@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ClipboardEvent, ReactNode } from 'react';
-import { Bot, CheckCircle2, Image, LoaderCircle, RotateCcw, SendHorizonal, X } from 'lucide-react';
+import { Bot, CheckCircle2, Image, Link2, LoaderCircle, RotateCcw, SendHorizonal, X } from 'lucide-react';
 import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
 import type { CliId } from '../../shared/terminal';
-import type { AgentImageAttachmentInput, AgentSkill } from '../../shared/agent';
+import type { AgentContextReferenceInput, AgentImageAttachmentInput, AgentSkill } from '../../shared/agent';
 import { getCliSkills } from '../../shared/skills';
 
 interface ImagePreviewState {
   name: string;
   url: string;
+}
+
+export interface AgentContextSource {
+  id: string;
+  type: 'conversation' | 'terminal';
+  title: string;
+  cliId: CliId;
+  projectPath?: string;
+  sessionKey?: string;
+  conversation?: ConversationRecord;
 }
 
 function getSkillSearchScore(skill: AgentSkill, query: string): number {
@@ -33,10 +43,28 @@ function getSkillSearchScore(skill: AgentSkill, query: string): number {
   return 0;
 }
 
+function getContextSourceSearchScore(source: AgentContextSource, query: string): number {
+  if (!query) return 1;
+  const title = source.title.toLowerCase();
+  const project = (source.projectPath ?? '').toLowerCase();
+  const cli = source.cliId.toLowerCase();
+  const id = source.id.toLowerCase();
+
+  if (title === query || id === query) return 1000;
+  if (title.startsWith(query)) return 820;
+  if (project.split(/[\\/]/u).pop()?.toLowerCase().startsWith(query)) return 740;
+  if (cli.startsWith(query)) return 620;
+  if (title.includes(query)) return 520;
+  if (project.includes(query)) return 420;
+  if (id.includes(query)) return 260;
+  return 0;
+}
+
 interface AgentPaneProps {
   active: boolean;
   conversationId?: string;
   conversationStore: ConversationStore;
+  contextSources: AgentContextSource[];
   profileName: string;
   profileId: CliId;
   onStoreChange: (store: ConversationStore) => void;
@@ -55,6 +83,7 @@ export function AgentPane({
   active,
   conversationId,
   conversationStore,
+  contextSources,
   profileName,
   profileId,
   onStoreChange,
@@ -64,6 +93,8 @@ export function AgentPane({
   const [attachments, setAttachments] = useState<AgentImageAttachmentInput[]>([]);
   const [previewImage, setPreviewImage] = useState<ImagePreviewState | null>(null);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const [referencedContextIds, setReferencedContextIds] = useState<string[]>([]);
   const [codexSkills, setCodexSkills] = useState<AgentSkill[] | null>(null);
   const [sending, setSending] = useState(false);
   const conversation = useMemo<ConversationRecord | undefined>(
@@ -90,10 +121,33 @@ export function AgentPane({
     [skillQuery, skills]
   );
   const showSkillMenu = matchingSkills.length > 0;
+  const referenceQuery = prompt.startsWith('@') && !prompt.includes('\n') ? prompt.slice(1).trim().toLowerCase() : null;
+  const referencedSources = useMemo(
+    () =>
+      referencedContextIds
+        .map((id) => contextSources.find((item) => item.id === id))
+        .filter((item): item is AgentContextSource => Boolean(item)),
+    [contextSources, referencedContextIds]
+  );
+  const matchingSources = useMemo(() => {
+    if (referenceQuery === null) return [];
+    return contextSources
+      .filter((item) => item.conversation?.id !== conversationId && !referencedContextIds.includes(item.id))
+      .map((item) => ({ source: item, score: getContextSourceSearchScore(item, referenceQuery) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || left.source.title.localeCompare(right.source.title))
+      .map((item) => item.source)
+      .slice(0, 80);
+  }, [contextSources, conversationId, referenceQuery, referencedContextIds]);
+  const showReferenceMenu = matchingSources.length > 0;
 
   useEffect(() => {
     setSelectedSkillIndex(0);
   }, [skillQuery, profileId]);
+
+  useEffect(() => {
+    setSelectedReferenceIndex(0);
+  }, [referenceQuery, conversationId]);
 
   useEffect(() => {
     if (profileId !== 'codex' || codexSkills) return;
@@ -110,16 +164,35 @@ export function AgentPane({
   function sendText(value: string, nextAttachments = attachments): void {
     const nextPrompt = value.trim();
     const attachmentSnapshot = nextAttachments.slice();
+    const referenceSnapshot = referencedSources
+      .map<AgentContextReferenceInput | null>((item) =>
+        item.type === 'conversation'
+          ? item.conversation
+            ? { type: 'conversation', id: item.conversation.id }
+            : null
+          : item.sessionKey
+            ? {
+                type: 'terminal',
+                id: item.sessionKey,
+                title: item.title,
+                projectPath: item.projectPath,
+                sessionKey: item.sessionKey
+              }
+            : null
+      )
+      .filter((item): item is AgentContextReferenceInput => Boolean(item));
     if (!conversation || (!nextPrompt && attachmentSnapshot.length === 0) || sending) return;
 
     setPrompt('');
     setAttachments([]);
+    setReferencedContextIds([]);
     setSending(true);
     void window.agentApi
       .send({
         conversationId: conversation.id,
         prompt: nextPrompt || 'Describe this image.',
-        attachments: attachmentSnapshot
+        attachments: attachmentSnapshot,
+        contextReferences: referenceSnapshot
       })
       .then((result) => {
         onStoreChange(result.store);
@@ -142,6 +215,16 @@ export function AgentPane({
       return `${skill.prompt}${nextText}`.trimStart();
     });
     setSelectedSkillIndex(0);
+  }
+
+  function insertContextReference(item: AgentContextSource): void {
+    setReferencedContextIds((current) => (current.includes(item.id) ? current : [...current, item.id].slice(0, 8)));
+    setPrompt((current) => (current.startsWith('@') && !current.includes('\n') ? '' : current));
+    setSelectedReferenceIndex(0);
+  }
+
+  function removeContextReference(id: string): void {
+    setReferencedContextIds((current) => current.filter((item) => item !== id));
   }
 
   function retryBefore(index: number): void {
@@ -270,6 +353,16 @@ export function AgentPane({
                     ))}
                   </div>
                 ) : null}
+                {message.references?.length ? (
+                  <div className="agent-message-references">
+                    {message.references.map((reference) => (
+                      <span key={reference.id}>
+                        <Link2 size={12} />
+                        {reference.title}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {message.status === 'error' ? (
                   <button className="agent-message-action" type="button" onClick={() => retryBefore(index)}>
                     <RotateCcw size={13} />
@@ -281,7 +374,15 @@ export function AgentPane({
           ))}
         </div>
         <div className="agent-input-row">
-          <div className={attachments.length ? 'agent-composer has-attachments' : 'agent-composer'}>
+          <div
+            className={[
+              'agent-composer',
+              attachments.length ? 'has-attachments' : '',
+              referencedSources.length ? 'has-references' : ''
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             {attachments.length ? (
               <div className="agent-attachment-tray">
                 {attachments.map((attachment) => (
@@ -342,12 +443,47 @@ export function AgentPane({
                   return;
                 }
 
+                if (showReferenceMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                  event.preventDefault();
+                  setSelectedReferenceIndex((current) => {
+                    const offset = event.key === 'ArrowDown' ? 1 : -1;
+                    return (current + offset + matchingSources.length) % matchingSources.length;
+                  });
+                  return;
+                }
+
+                if (showReferenceMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+                  event.preventDefault();
+                  insertContextReference(matchingSources[selectedReferenceIndex] ?? matchingSources[0]);
+                  return;
+                }
+
+                if (showReferenceMenu && event.key === 'Escape') {
+                  event.preventDefault();
+                  setPrompt('');
+                  return;
+                }
+
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
                   sendPrompt();
                 }
               }}
             />
+            {referencedSources.length ? (
+              <div className="agent-reference-tray">
+                {referencedSources.map((item) => (
+                  <span className="agent-reference-chip" key={item.id}>
+                    <Link2 size={12} />
+                    <b>{item.title}</b>
+                    <small>{item.projectPath?.split(/[\\/]/).filter(Boolean).pop() ?? item.cliId}</small>
+                    <button type="button" onClick={() => removeContextReference(item.id)} aria-label={`Remove ${item.title}`}>
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {showSkillMenu ? (
               <div className="agent-skill-menu">
                 <div className="agent-skill-menu-meta">
@@ -364,6 +500,28 @@ export function AgentPane({
                     <span>{skill.command}</span>
                     <strong>{skill.label}</strong>
                     <small>{skill.source ? `${skill.source} - ${skill.description}` : skill.description}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {showReferenceMenu ? (
+              <div className="agent-reference-menu">
+                <div className="agent-skill-menu-meta">
+                  <span>
+                    {referenceQuery ? `Search: ${referenceQuery}` : `${contextSources.length} contexts`}
+                  </span>
+                </div>
+                {matchingSources.map((item, index) => (
+                  <button
+                    className={index === selectedReferenceIndex ? 'selected' : undefined}
+                    key={item.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertContextReference(item)}
+                  >
+                    <span>@{item.title}</span>
+                    <strong>{item.type === 'terminal' ? 'Terminal' : item.cliId}</strong>
+                    <small>{item.type === 'terminal' ? `Terminal transcript - ${item.projectPath ?? ''}` : item.projectPath}</small>
                   </button>
                 ))}
               </div>

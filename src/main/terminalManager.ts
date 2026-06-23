@@ -251,7 +251,7 @@ function getTranscriptPath(sessionKey: string): string {
   return join(homedir(), '.tui-ai-terminal', 'transcripts', `${sessionKey}.ansi`);
 }
 
-async function readTranscript(sessionKey: string | undefined): Promise<string> {
+export async function readTerminalTranscript(sessionKey: string | undefined): Promise<string> {
   if (!sessionKey) return '';
   try {
     return await readFile(getTranscriptPath(sessionKey), 'utf8');
@@ -263,7 +263,7 @@ async function readTranscript(sessionKey: string | undefined): Promise<string> {
 async function appendTranscript(sessionKey: string | undefined, data: string): Promise<void> {
   if (!sessionKey) return;
   const transcriptPath = getTranscriptPath(sessionKey);
-  const current = await readTranscript(sessionKey);
+  const current = await readTerminalTranscript(sessionKey);
   const next = `${current}${data}`.slice(-maxTranscriptLength);
   await mkdir(dirname(transcriptPath), { recursive: true });
   await writeFile(transcriptPath, next, 'utf8');
@@ -293,7 +293,7 @@ export function registerTerminalIpc(): void {
       };
       const id = randomUUID();
       const sessionKey = sanitizeSessionKey(request.sessionKey);
-      const replay = await readTranscript(sessionKey);
+      const replay = await readTerminalTranscript(sessionKey);
       const fallbackProfile = getCliProfile('shell');
       const env = createEnv();
       const resolvedCommand = resolveCommand(profileWithRequestArgs.command, env);

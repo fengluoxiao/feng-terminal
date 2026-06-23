@@ -34,6 +34,7 @@ import type { AppSettings, CliBinding } from '../../shared/settings';
 import type { CliId, CliProfile, ShellOption } from '../../shared/terminal';
 import type { WorkspaceState } from '../../shared/workspace';
 import { AgentPane } from './AgentPane';
+import type { AgentContextSource } from './AgentPane';
 import { ContextPanel } from './ContextPanel';
 import { DesktopPet } from './DesktopPet';
 import { TerminalPane } from './TerminalPane';
@@ -431,6 +432,29 @@ export function App(): ReactNode {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const activeConversation = conversationStore.conversations.find(
     (conversation) => conversation.id === activeTab.conversationId
+  );
+  const contextSources = useMemo<AgentContextSource[]>(
+    () => [
+      ...conversationStore.conversations.map((conversation) => ({
+        id: `conversation:${conversation.id}`,
+        type: 'conversation' as const,
+        title: conversation.title,
+        cliId: conversation.cliId,
+        projectPath: conversation.projectPath,
+        conversation
+      })),
+      ...tabs
+        .filter((tab) => tab.profileId === 'shell')
+        .map((tab) => ({
+          id: `terminal:${tab.sessionKey ?? tab.id}`,
+          type: 'terminal' as const,
+          title: tab.title,
+          cliId: 'shell' as const,
+          projectPath: tab.projectPath ?? tab.cwd,
+          sessionKey: tab.sessionKey ?? tab.id
+        }))
+    ],
+    [conversationStore.conversations, tabs]
   );
   const resolvedLanguage = resolveLanguage(settings.language);
   const t = translations[resolvedLanguage];
@@ -1000,6 +1024,7 @@ export function App(): ReactNode {
                         active={tab.id === activeTab.id}
                         conversationId={tab.conversationId}
                         conversationStore={conversationStore}
+                        contextSources={contextSources}
                         labels={t.agentPane}
                         onStoreChange={setConversationStore}
                         profileId={tab.profileId}
@@ -1011,11 +1036,13 @@ export function App(): ReactNode {
               </section>
               <ContextPanel
                 conversation={activeConversation}
+                conversationStore={conversationStore}
                 profile={profiles.find((profile) => profile.id === activeTab.profileId)}
                 profileId={activeTab.profileId}
                 projectPath={activeTab.projectPath ?? activeTab.cwd}
                 tabTitle={activeTab.title}
                 labels={t.contextPanel}
+                onStoreChange={setConversationStore}
               />
             </div>
           )}

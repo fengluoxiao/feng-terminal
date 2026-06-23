@@ -4,7 +4,22 @@ export interface AgentSendRequest {
   conversationId: string;
   prompt: string;
   attachments?: AgentImageAttachmentInput[];
+  referencedConversationIds?: string[];
+  contextReferences?: AgentContextReferenceInput[];
 }
+
+export type AgentContextReferenceInput =
+  | {
+      type: 'conversation';
+      id: string;
+    }
+  | {
+      type: 'terminal';
+      id: string;
+      title: string;
+      projectPath?: string;
+      sessionKey: string;
+    };
 
 export interface AgentSendResult {
   store: ConversationStore;

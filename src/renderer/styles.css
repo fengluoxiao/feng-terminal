@@ -2036,6 +2036,31 @@ kbd {
   outline-offset: 2px;
 }
 
+.agent-message-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.agent-message-references span {
+  display: inline-flex;
+  max-width: 220px;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 7px;
+  overflow: hidden;
+  color: #31516f;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-message-running {
   color: #66717d;
 }
@@ -2133,6 +2158,69 @@ kbd {
   cursor: pointer;
 }
 
+.agent-reference-tray {
+  position: absolute;
+  left: 8px;
+  right: 35px;
+  bottom: 8px;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.agent-reference-chip {
+  display: inline-flex;
+  max-width: 240px;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 5px 0 7px;
+  overflow: hidden;
+  color: #34404d;
+  background: #eef5ff;
+  border: 1px solid rgba(36, 107, 254, 0.18);
+  border-radius: 999px;
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+.agent-reference-chip b,
+.agent-reference-chip small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-reference-chip b {
+  font-weight: 750;
+}
+
+.agent-reference-chip small {
+  color: #68737f;
+}
+
+.agent-reference-chip button {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: #607086;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.agent-reference-chip button:hover {
+  color: #1f252d;
+  background: rgba(36, 107, 254, 0.12);
+}
+
 .agent-image-picker-button {
   position: absolute;
   right: 10px;
@@ -2174,12 +2262,18 @@ kbd {
   border-color: rgba(68, 76, 86, 0.12);
 }
 
+.agent-composer.has-references textarea {
+  min-height: 68px;
+  padding-bottom: 34px;
+}
+
 .agent-input-row textarea:focus {
   border-color: #8ab4ff;
   box-shadow: 0 0 0 1px rgba(36, 107, 254, 0.14);
 }
 
-.agent-skill-menu {
+.agent-skill-menu,
+.agent-reference-menu {
   position: absolute;
   left: 0;
   right: 0;
@@ -2198,7 +2292,8 @@ kbd {
   box-shadow: 0 16px 38px rgba(20, 28, 38, 0.14);
 }
 
-.agent-skill-menu button {
+.agent-skill-menu button,
+.agent-reference-menu button {
   display: grid;
   grid-template-columns: minmax(86px, 130px) minmax(0, 0.42fr) minmax(0, 1fr);
   align-items: center;
@@ -2224,30 +2319,37 @@ kbd {
 }
 
 .agent-skill-menu button:hover,
-.agent-skill-menu button.selected {
+.agent-skill-menu button.selected,
+.agent-reference-menu button:hover,
+.agent-reference-menu button.selected {
   background: #eef5ff;
   color: #163b68;
 }
 
-.agent-skill-menu span {
+.agent-skill-menu span,
+.agent-reference-menu span {
   color: #246bfe;
   font-size: 12px;
   font-weight: 760;
 }
 
 .agent-skill-menu strong,
-.agent-skill-menu small {
+.agent-skill-menu small,
+.agent-reference-menu strong,
+.agent-reference-menu small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-skill-menu strong {
+.agent-skill-menu strong,
+.agent-reference-menu strong {
   font-size: 13px;
 }
 
-.agent-skill-menu small {
+.agent-skill-menu small,
+.agent-reference-menu small {
   color: #69737f;
   font-size: 12px;
 }
@@ -2440,6 +2542,65 @@ kbd {
   color: #a40e26;
   font-size: 11px;
   line-height: 1.45;
+}
+
+.context-links {
+  gap: 6px;
+}
+
+.context-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.08);
+  border-radius: 7px;
+}
+
+.context-link span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-link button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  color: #6b7580;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.context-link button:hover {
+  color: #1f252d;
+  background: rgba(31, 38, 46, 0.08);
+}
+
+.context-link-add {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  color: #6b7580;
+}
+
+.context-link-add select {
+  min-width: 0;
+  height: 28px;
+  color: #34404d;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
 }
 
 .tooltip {

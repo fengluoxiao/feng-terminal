@@ -9,6 +9,7 @@ export interface ConversationMessage {
   createdAt: string;
   status?: 'running' | 'done' | 'error';
   attachments?: ConversationAttachment[];
+  references?: ConversationReference[];
 }
 
 export interface ConversationAttachment {
@@ -27,9 +28,17 @@ export interface ConversationRun {
   status: 'running' | 'done' | 'error';
   startedAt: string;
   attachments?: ConversationAttachment[];
+  references?: ConversationReference[];
   finishedAt?: string;
   durationMs?: number;
   error?: string;
+}
+
+export interface ConversationReference {
+  id: string;
+  title: string;
+  cliId: CliId;
+  projectPath: string;
 }
 
 export interface ConversationRecord {
@@ -39,6 +48,7 @@ export interface ConversationRecord {
   title: string;
   mode: ConversationMode;
   sessionId?: string;
+  linkedConversationIds?: string[];
   messages?: ConversationMessage[];
   runs?: ConversationRun[];
   createdAt: string;
@@ -59,6 +69,7 @@ export interface ConversationUpdateRequest {
   title?: string;
   mode?: ConversationMode;
   sessionId?: string;
+  linkedConversationIds?: string[];
 }
 
 export interface ConversationBindSessionRequest {
