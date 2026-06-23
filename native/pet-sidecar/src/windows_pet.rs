@@ -25,7 +25,7 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
             DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowRect,
-            KillTimer, LoadCursorW, PostQuitMessage, RegisterClassW, SetCursor, SetCursorPos,
+            KillTimer, LoadCursorW, PostQuitMessage, RegisterClassW, SetCursor,
             SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
             TrackPopupMenu, TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_DBLCLKS,
             CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, IDC_SIZENWSE, MF_STRING, MSG, SW_SHOW,
@@ -43,6 +43,8 @@ const WM_PET_ACTION: u32 = WM_APP + 2;
 const RESIZE_HOT_ZONE: i32 = 28;
 const BASE_RENDER_WIDTH: f32 = 112.0;
 const BASE_RENDER_HEIGHT: f32 = 121.0;
+const DRAG_DIRECTION_START_THRESHOLD: i32 = 8;
+const DRAG_DIRECTION_REVERSE_THRESHOLD: i32 = 32;
 const ACTION_MENU_ITEMS: [(&str, &str); 9] = [
     ("待机 idle", "idle"),
     ("向右跑 running-right", "running-right"),
@@ -100,6 +102,8 @@ struct PetState {
     drag_lock_cursor: POINT,
     drag_scale: f32,
     drag_running_action: Option<&'static str>,
+    drag_direction_accumulated_x: i32,
+    drag_direction_ready: bool,
     drag_moved: bool,
 }
 
@@ -147,6 +151,8 @@ pub fn run() -> Result<()> {
         drag_lock_cursor: POINT::default(),
         drag_scale: scale,
         drag_running_action: None,
+        drag_direction_accumulated_x: 0,
+        drag_direction_ready: false,
         drag_moved: false,
     });
 
@@ -760,6 +766,65 @@ unsafe fn track_mouse_leave(hwnd: HWND, state: &mut PetState) {
     }
 }
 
+unsafe fn move_pet_by_delta(hwnd: HWND, state: &mut PetState, movement_dx: i32, movement_dy: i32) {
+    if movement_dx == 0 && movement_dy == 0 {
+        return;
+    }
+    state.drag_moved = true;
+    let running_action = if state.drag_direction_ready {
+        state.drag_direction_accumulated_x = (state.drag_direction_accumulated_x + movement_dx)
+            .clamp(
+                -DRAG_DIRECTION_REVERSE_THRESHOLD * 2,
+                DRAG_DIRECTION_REVERSE_THRESHOLD * 2,
+            );
+        let left_threshold = if state.drag_running_action == Some("running-right") {
+            DRAG_DIRECTION_REVERSE_THRESHOLD
+        } else {
+            DRAG_DIRECTION_START_THRESHOLD
+        };
+        let right_threshold = if state.drag_running_action == Some("running-left") {
+            DRAG_DIRECTION_REVERSE_THRESHOLD
+        } else {
+            DRAG_DIRECTION_START_THRESHOLD
+        };
+        if state.drag_direction_accumulated_x <= -left_threshold {
+            state.drag_direction_accumulated_x = 0;
+            Some("running-left")
+        } else if state.drag_direction_accumulated_x >= right_threshold {
+            state.drag_direction_accumulated_x = 0;
+            Some("running-right")
+        } else {
+            state.drag_running_action
+        }
+    } else {
+        state.drag_direction_ready = true;
+        state.drag_direction_accumulated_x = 0;
+        state.drag_running_action
+    };
+    if let Some(action) = running_action {
+        if state.drag_running_action != Some(action) {
+            state.drag_running_action = Some(action);
+            state.transient_action = false;
+            switch_action(hwnd, state, action);
+        }
+    }
+    state.drag_window.x += movement_dx;
+    state.drag_window.y += movement_dy;
+    state.drag_lock_cursor = POINT {
+        x: state.drag_window.x + state.width / 2,
+        y: state.drag_window.y + state.height / 2,
+    };
+    SetWindowPos(
+        hwnd,
+        null_mut(),
+        state.drag_window.x,
+        state.drag_window.y,
+        0,
+        0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+    );
+}
+
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         WM_NCCREATE => {
@@ -819,11 +884,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 };
                 state.drag_scale = state.scale;
                 state.drag_running_action = None;
+                state.drag_direction_accumulated_x = 0;
+                state.drag_direction_ready = false;
                 state.drag_last_cursor = state.drag_cursor;
                 state.drag_moved = false;
-                if state.interaction == Interaction::Moving {
-                    SetCursorPos(state.drag_lock_cursor.x, state.drag_lock_cursor.y);
-                }
                 SetCapture(hwnd);
             }
             0
@@ -837,43 +901,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 let dy = cursor.y - state.drag_cursor.y;
                 match state.interaction {
                     Interaction::Moving => {
-                        let movement_dx = cursor.x - state.drag_lock_cursor.x;
-                        let movement_dy = cursor.y - state.drag_lock_cursor.y;
-                        if movement_dx == 0 && movement_dy == 0 {
-                            return 0;
-                        }
-                        state.drag_moved = true;
-                        let running_action = if movement_dx < -1 {
-                            Some("running-left")
-                        } else if movement_dx > 1 {
-                            Some("running-right")
-                        } else {
-                            state.drag_running_action
-                        };
-                        if let Some(action) = running_action {
-                            if state.drag_running_action != Some(action) {
-                                state.drag_running_action = Some(action);
-                                state.transient_action = false;
-                                switch_action(hwnd, state, action);
-                            }
-                        }
-                        state.drag_window.x += movement_dx;
-                        state.drag_window.y += movement_dy;
-                        state.drag_lock_cursor = POINT {
-                            x: state.drag_window.x + state.width / 2,
-                            y: state.drag_window.y + state.height / 2,
-                        };
-                        state.drag_last_cursor = state.drag_lock_cursor;
-                        SetWindowPos(
-                            hwnd,
-                            null_mut(),
-                            state.drag_window.x,
-                            state.drag_window.y,
-                            0,
-                            0,
-                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                        );
-                        SetCursorPos(state.drag_lock_cursor.x, state.drag_lock_cursor.y);
+                        let movement_dx = cursor.x - state.drag_last_cursor.x;
+                        let movement_dy = cursor.y - state.drag_last_cursor.y;
+                        state.drag_last_cursor = cursor;
+                        move_pet_by_delta(hwnd, state, movement_dx, movement_dy);
                     }
                     Interaction::Resizing => {
                         let delta = dx.max(dy) as f32;
@@ -917,6 +948,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                         let base_action = state.base_action_name.clone();
                         state.transient_action = false;
                         state.drag_running_action = None;
+                        state.drag_direction_accumulated_x = 0;
+                        state.drag_direction_ready = false;
                         switch_action(hwnd, state, &base_action);
                     }
                 }
@@ -929,6 +962,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             if let Some(state) = state_from_hwnd(hwnd) {
                 state.interaction = Interaction::None;
                 state.drag_running_action = None;
+                state.drag_direction_accumulated_x = 0;
+                state.drag_direction_ready = false;
                 ReleaseCapture();
                 show_action_menu(hwnd, state);
             }
