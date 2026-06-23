@@ -54,7 +54,7 @@ body,
 }
 
 body:has(.desktop-pet) {
-  background: transparent;
+  background: transparent !important;
 }
 
 button {
@@ -62,18 +62,62 @@ button {
 }
 
 .desktop-pet {
-  -webkit-app-region: drag;
+  position: relative;
   display: grid;
   width: 100%;
   height: 100%;
   place-items: center;
-  padding: 8px;
+  padding: 16px;
   color: #28313b;
-  background: transparent;
+  background: transparent !important;
+  isolation: isolate;
+}
+
+.desktop-pet-embedded {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 80;
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+
+.desktop-pet-embedded .desktop-pet-hit-area,
+.desktop-pet-embedded .desktop-pet-resize-handle {
+  pointer-events: auto;
+}
+
+.desktop-pet-resize-handle {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(49, 81, 111, 0.72) 50%) right bottom / 8px 8px no-repeat,
+    linear-gradient(135deg, transparent 50%, rgba(49, 81, 111, 0.5) 50%) right 5px bottom 5px / 7px 7px no-repeat;
+  border: 0;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.desktop-pet:hover .desktop-pet-resize-handle,
+.desktop-pet-resize-handle:focus-visible {
+  opacity: 1;
+}
+
+.desktop-pet-resize-handle:focus-visible {
+  outline: 2px solid rgba(44, 120, 255, 0.72);
+  outline-offset: 2px;
 }
 
 .desktop-pet-hit-area {
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
+  appearance: none;
   position: relative;
   display: grid;
   width: 148px;
@@ -81,24 +125,21 @@ button {
   place-items: center;
   padding: 0;
   color: inherit;
-  background: transparent;
+  background: transparent !important;
   border: 0;
   cursor: pointer;
+  outline: 0;
   user-select: none;
-}
-
-.desktop-pet-loader {
-  display: none;
 }
 
 .desktop-pet-sprite {
   display: block;
   overflow: hidden;
   transform: translateY(-13px);
-  background-repeat: no-repeat;
-  background-size: auto 100%;
+  background: transparent;
   filter: drop-shadow(0 10px 16px rgba(31, 42, 55, 0.18));
-  image-rendering: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .desktop-pet-fallback {
@@ -1189,16 +1230,162 @@ kbd {
   font-size: 12px;
 }
 
-.pet-picker {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: min(360px, 100%);
+.pet-panel {
+  overflow: hidden;
+  border: 1px solid rgba(68, 76, 86, 0.11);
+  border-radius: 8px;
 }
 
-.pet-picker .select-menu {
-  width: 220px;
+.pet-panel-header {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  padding: 12px;
+  color: #26313d;
+  text-align: left;
+  background: #ffffff;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pet-panel-header span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pet-panel-header strong {
+  font-size: 13px;
+}
+
+.pet-panel-header small {
+  color: #6b7580;
+  font-size: 12px;
+}
+
+.pet-panel-header svg {
+  color: #7a8491;
+  transition: transform 120ms ease;
+}
+
+.pet-panel-header svg.open {
+  transform: rotate(180deg);
+}
+
+.pet-panel-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fbfcfd;
+  border-top: 1px solid rgba(68, 76, 86, 0.08);
+}
+
+.pet-panel-toolbar button,
+.pet-list-item > button {
+  height: 28px;
+  padding: 0 10px;
+  color: #26313d;
+  background: #f3f4f6;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.pet-panel-toolbar button:hover,
+.pet-list-item > button:hover:not(:disabled) {
+  background: #e9edf2;
+}
+
+.pet-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(68, 76, 86, 0.08);
+}
+
+.pet-list-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 88px;
+  padding: 12px;
+  background: #ffffff;
+  border-top: 1px solid rgba(68, 76, 86, 0.08);
+}
+
+.pet-list-item:first-child {
+  border-top: 0;
+}
+
+.pet-list-preview {
+  display: grid !important;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  overflow: hidden;
+  color: #6b7580;
+  background:
+    linear-gradient(45deg, rgba(68, 76, 86, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(68, 76, 86, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(68, 76, 86, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(68, 76, 86, 0.08) 75%),
+    #ffffff;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
+  background-size: 12px 12px;
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 8px;
+}
+
+.pet-list-preview img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.pet-list-item > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pet-list-item strong {
+  color: #26313d;
+  font-size: 13px;
+}
+
+.pet-list-item small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #6b7580;
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pet-list-item > button:disabled {
+  color: #9aa3ad;
+  cursor: default;
+  opacity: 0.8;
+}
+
+.pet-list-empty {
+  padding: 16px;
+  color: #6b7580;
+  font-size: 12px;
 }
 
 .settings-secondary-button {
@@ -1440,7 +1627,7 @@ kbd {
   box-shadow: 0 0 0 1px rgba(36, 107, 254, 0.16);
 }
 
-.select-menu > button span {
+.select-menu > button > span {
   min-width: 0;
   overflow: hidden;
   line-height: 1.2;
@@ -1472,7 +1659,7 @@ kbd {
   grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
-  height: 28px;
+  min-height: 28px;
   padding: 0 8px 0 5px;
   color: #26313d;
   text-align: left;

@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode, SyntheticEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { AlertCircle, Bot, CheckCircle2, LoaderCircle, MessageCircle } from 'lucide-react';
 import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
 import type { DesktopPetStatus } from '../../shared/desktopPet';
 import type { DesktopPetActionName, DesktopPetAsset } from '../../shared/desktopPetAsset';
 import type { AppSettings } from '../../shared/settings';
+
+interface DesktopPetProps {
+  embedded?: boolean;
+  settings?: AppSettings;
+  onScaleChange?: (scale: number) => void;
+}
 
 const emptyStore: ConversationStore = {
   conversations: [],
@@ -45,13 +51,13 @@ function getActionName(status: DesktopPetStatus, transientAction: DesktopPetActi
   return 'idle';
 }
 
-export function DesktopPet(): ReactNode {
+export function DesktopPet({ embedded = false, settings: externalSettings, onScaleChange }: DesktopPetProps = {}): ReactNode {
   const [store, setStore] = useState<ConversationStore>(emptyStore);
   const [asset, setAsset] = useState<DesktopPetAsset | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [transientAction, setTransientAction] = useState<DesktopPetActionName | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
-  const [processedSpritesheetUrl, setProcessedSpritesheetUrl] = useState<string | null>(null);
+  const [spriteFrameUrl, setSpriteFrameUrl] = useState<string | null>(null);
   const [petScale, setPetScale] = useState(1);
   const displayFrameWidth = Math.round(112 * petScale);
   const displayFrameHeight = Math.round(121 * petScale);
@@ -65,6 +71,7 @@ export function DesktopPet(): ReactNode {
 
   useEffect(() => {
     void window.conversationApi.list().then(setStore);
+    if (embedded) return window.agentApi.onUpdate((event) => setStore(event.store));
     void window.settingsApi
       .load()
       .then((settings: AppSettings) => {
@@ -73,7 +80,13 @@ export function DesktopPet(): ReactNode {
       })
       .then(setAsset);
     return window.agentApi.onUpdate((event) => setStore(event.store));
-  }, []);
+  }, [embedded]);
+
+  useEffect(() => {
+    if (!externalSettings) return;
+    setPetScale(externalSettings.desktopPetScale);
+    void window.petApi.resolveAsset(externalSettings.desktopPetAssetPath).then(setAsset);
+  }, [externalSettings?.desktopPetAssetPath, externalSettings?.desktopPetScale]);
 
   const conversation = useMemo(
     () => [...store.conversations].sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt))[0],
@@ -88,7 +101,7 @@ export function DesktopPet(): ReactNode {
 
   useEffect(() => {
     setImageFailed(false);
-    setProcessedSpritesheetUrl(null);
+    setSpriteFrameUrl(null);
   }, [asset?.spritesheetUrl]);
 
   useEffect(() => {
@@ -109,137 +122,120 @@ export function DesktopPet(): ReactNode {
     return () => window.clearTimeout(timer);
   }, [transientAction]);
 
+  useEffect(() => {
+    if (!asset || imageFailed) return undefined;
+    const canvas = document.createElement('canvas');
+    canvas.width = asset.atlas.cellWidth;
+    canvas.height = asset.atlas.cellHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return undefined;
+
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (cancelled) return;
+      context.clearRect(0, 0, asset.atlas.cellWidth, asset.atlas.cellHeight);
+      context.imageSmoothingEnabled = false;
+      context.drawImage(
+        image,
+        frameIndex * asset.atlas.cellWidth,
+        (action?.row ?? 0) * asset.atlas.cellHeight,
+        asset.atlas.cellWidth,
+        asset.atlas.cellHeight,
+        0,
+        0,
+        asset.atlas.cellWidth,
+        asset.atlas.cellHeight
+      );
+      setSpriteFrameUrl(canvas.toDataURL('image/png'));
+    };
+    image.onerror = () => setImageFailed(true);
+    image.src = asset.spritesheetDataUrl;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [action?.row, asset, frameIndex, imageFailed]);
+
   function wakeMainWindow(): void {
     setTransientAction(status === 'idle' ? 'waving' : 'jumping');
-    void window.petApi.focusMain();
   }
 
-  function removeConnectedCellBackground(event: SyntheticEvent<HTMLImageElement>): void {
-    if (!asset) return;
+  function resizePet(scale: number, persist = false): void {
+    const nextScale = Math.min(2, Math.max(0.5, Math.round(scale * 100) / 100));
+    setPetScale(nextScale);
+    if (embedded) {
+      if (persist) onScaleChange?.(nextScale);
+      return;
+    }
+    if (persist) {
+      void window.petApi.resize(nextScale, true).then((settings) => {
+        setPetScale(settings.desktopPetScale);
+      });
+      return;
+    }
+    void window.petApi.resize(nextScale, false);
+  }
 
-    const image = event.currentTarget;
-    const atlasColumns = asset.atlas.columns;
-    const atlasRows = asset.atlas.rows;
-    const cellWidth = asset.atlas.cellWidth;
-    const cellHeight = asset.atlas.cellHeight;
-    const width = atlasColumns * cellWidth;
-    const height = atlasRows * cellHeight;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) return;
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startScale = petScale;
+    const baseSize = 202;
 
-    context.drawImage(image, 0, 0, width, height);
-    const imageData = context.getImageData(0, 0, width, height);
-    const { data } = imageData;
-    const visited = new Uint8Array(width * height);
-    const queue = new Int32Array(width * height);
-    const tolerance = 42;
-
-    function colorDistanceSquared(pixelIndex: number, color: [number, number, number]): number {
-      const dataIndex = pixelIndex * 4;
-      const red = data[dataIndex] - color[0];
-      const green = data[dataIndex + 1] - color[1];
-      const blue = data[dataIndex + 2] - color[2];
-      return red * red + green * green + blue * blue;
+    function onPointerMove(moveEvent: PointerEvent): void {
+      const delta = Math.max(moveEvent.clientX - startX, moveEvent.clientY - startY);
+      resizePet(startScale + delta / baseSize);
     }
 
-    function flood(seedX: number, seedY: number): void {
-      if (seedX < 0 || seedY < 0 || seedX >= width || seedY >= height) return;
-      const seedIndex = seedY * width + seedX;
-      if (visited[seedIndex]) return;
-
-      const seedDataIndex = seedIndex * 4;
-      if (data[seedDataIndex + 3] < 8) {
-        visited[seedIndex] = 1;
-        return;
-      }
-
-      const seedColor: [number, number, number] = [
-        data[seedDataIndex],
-        data[seedDataIndex + 1],
-        data[seedDataIndex + 2]
-      ];
-      const threshold = tolerance * tolerance;
-      let head = 0;
-      let tail = 0;
-      queue[tail++] = seedIndex;
-      visited[seedIndex] = 1;
-
-      while (head < tail) {
-        const index = queue[head++];
-        if (colorDistanceSquared(index, seedColor) > threshold) continue;
-
-        data[index * 4 + 3] = 0;
-        const x = index % width;
-        const y = Math.floor(index / width);
-        const neighbors = [index - 1, index + 1, index - width, index + width];
-
-        for (const nextIndex of neighbors) {
-          if (nextIndex < 0 || nextIndex >= visited.length || visited[nextIndex]) continue;
-          const nextX = nextIndex % width;
-          const nextY = Math.floor(nextIndex / width);
-          if (Math.abs(nextX - x) + Math.abs(nextY - y) !== 1) continue;
-          visited[nextIndex] = 1;
-          queue[tail++] = nextIndex;
-        }
-      }
+    function onPointerUp(upEvent: PointerEvent): void {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      const delta = Math.max(upEvent.clientX - startX, upEvent.clientY - startY);
+      resizePet(startScale + delta / baseSize, true);
     }
 
-    for (let row = 0; row < atlasRows; row += 1) {
-      for (let column = 0; column < atlasColumns; column += 1) {
-        const left = column * cellWidth;
-        const top = row * cellHeight;
-        const right = left + cellWidth - 1;
-        const bottom = top + cellHeight - 1;
-
-        for (let x = left; x <= right; x += 1) {
-          flood(x, top);
-          flood(x, bottom);
-        }
-
-        for (let y = top; y <= bottom; y += 1) {
-          flood(left, y);
-          flood(right, y);
-        }
-      }
-    }
-
-    context.putImageData(imageData, 0, 0);
-    setProcessedSpritesheetUrl(canvas.toDataURL('image/png'));
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp, { once: true });
   }
 
   return (
-    <main className={`desktop-pet desktop-pet-${status}`} onDoubleClick={wakeMainWindow}>
-      <button
+    <main className={`desktop-pet desktop-pet-${status}${embedded ? ' desktop-pet-embedded' : ''}`} onDoubleClick={wakeMainWindow}>
+      <div
         className="desktop-pet-hit-area"
-        type="button"
+        role="button"
+        tabIndex={0}
         aria-label="Open app"
         style={{ width: `${hitAreaWidth}px`, height: `${hitAreaHeight}px` }}
-        onClick={wakeMainWindow}
+        onClick={(event) => {
+          if (event.currentTarget.dataset.dragged === 'true') return;
+          wakeMainWindow();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            wakeMainWindow();
+          }
+        }}
       >
         {asset && !imageFailed ? (
           <>
-            <img
-              className="desktop-pet-loader"
-              alt=""
-              src={asset.spritesheetDataUrl}
-              onLoad={removeConnectedCellBackground}
-              onError={() => setImageFailed(true)}
-            />
-            <span
-              className="desktop-pet-sprite"
-              aria-hidden="true"
-              style={{
-                width: `${displayFrameWidth}px`,
-                height: `${displayFrameHeight}px`,
-                backgroundImage: `url("${processedSpritesheetUrl ?? asset.spritesheetDataUrl}")`,
-                backgroundSize: `${(atlas?.columns ?? 8) * displayFrameWidth}px ${(atlas?.rows ?? 9) * displayFrameHeight}px`,
-                backgroundPosition: `${-frameIndex * displayFrameWidth}px ${-(action?.row ?? 0) * displayFrameHeight}px`,
-                transform: `translateY(${spriteOffsetY}px)`
-              }}
-            />
+            {spriteFrameUrl ? (
+              <img
+                className="desktop-pet-sprite"
+                alt=""
+                aria-hidden="true"
+                src={spriteFrameUrl}
+                onError={() => setImageFailed(true)}
+                style={{
+                  width: `${displayFrameWidth}px`,
+                  height: `${displayFrameHeight}px`,
+                  transform: `translateY(${spriteOffsetY}px)`
+                }}
+              />
+            ) : null}
           </>
         ) : (
           <span className="desktop-pet-fallback">
@@ -255,7 +251,14 @@ export function DesktopPet(): ReactNode {
         </span>
         <strong style={{ bottom: `${titleBottom}px`, fontSize: `${titleFontSize}px` }}>{getProjectName(conversation)}</strong>
         <small>{latestText || asset?.displayName || '双击回到应用'}</small>
-      </button>
+      </div>
+      <button
+        className="desktop-pet-resize-handle"
+        type="button"
+        aria-label="调整桌宠大小"
+        title="拖动调整大小"
+        onPointerDown={startResize}
+      />
     </main>
   );
 }

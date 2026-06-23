@@ -35,6 +35,7 @@ import type { CliId, CliProfile, ShellOption } from '../../shared/terminal';
 import type { WorkspaceState } from '../../shared/workspace';
 import { AgentPane } from './AgentPane';
 import { ContextPanel } from './ContextPanel';
+import { DesktopPet } from './DesktopPet';
 import { TerminalPane } from './TerminalPane';
 import type { DesktopPetAsset } from '../../shared/desktopPetAsset';
 
@@ -175,11 +176,17 @@ const translations = {
     openLinksExternallyDescription: 'Use the system browser for terminal links.',
     desktopPet: 'Desktop pet',
     desktopPetDescription: 'Show a floating assistant pet for this app.',
+    desktopPetNativeWindow: 'Native pet window',
+    desktopPetNativeWindowDescription: 'Use the native sidecar when available; falls back to embedded.',
     desktopPetStyle: 'Pet style',
     desktopPetStyleDescription: 'Uses Codex pet folders with pet.json and spritesheet.webp.',
     desktopPetScale: 'Pet size',
     desktopPetScaleDescription: 'Adjust the floating pet window size.',
     importDesktopPet: 'Import',
+    refreshDesktopPets: 'Refresh',
+    wakeDesktopPet: 'Wake Pet',
+    selectDesktopPet: 'Select',
+    selectedDesktopPet: 'Selected',
     unselectedDesktopPet: 'Not selected',
     noDesktopPets: 'No pets found',
     shortcutCommandPalette: 'Command palette',
@@ -318,11 +325,17 @@ const translations = {
     openLinksExternallyDescription: '使用系统浏览器打开终端链接。',
     desktopPet: '桌宠',
     desktopPetDescription: '显示这个应用的悬浮桌宠。',
+    desktopPetNativeWindow: '原生独立窗口',
+    desktopPetNativeWindowDescription: '可用时使用原生 sidecar；不可用时回退到内嵌。',
     desktopPetStyle: '桌宠样式',
     desktopPetStyleDescription: '使用 Codex 桌宠文件夹格式：pet.json 和 spritesheet.webp。',
     desktopPetScale: '桌宠大小',
     desktopPetScaleDescription: '调整悬浮桌宠窗口大小。',
     importDesktopPet: '导入',
+    refreshDesktopPets: '刷新',
+    wakeDesktopPet: '唤醒桌宠',
+    selectDesktopPet: '选择',
+    selectedDesktopPet: '已选择',
     unselectedDesktopPet: '未选择',
     noDesktopPets: '未找到桌宠',
     shortcutCommandPalette: '命令面板',
@@ -411,6 +424,7 @@ export function App(): ReactNode {
   const [conversationPanelOpen, setConversationPanelOpen] = useState(true);
   const [expandedAgentKeys, setExpandedAgentKeys] = useState<Record<string, boolean>>({});
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [nativePetAvailable, setNativePetAvailable] = useState(false);
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [tabs, setTabs] = useState<SessionTab[]>([fallbackTab]);
   const [activeTabId, setActiveTabId] = useState(fallbackTab.id);
@@ -434,6 +448,7 @@ export function App(): ReactNode {
       setSettings(loadedSettings);
       setActiveProfile(loadedSettings.defaultProfileId);
     });
+    void window.petApi.nativeAvailable().then(setNativePetAvailable);
     void window.conversationApi.list().then(setConversationStore);
     void window.workspaceApi.load().then((workspace) => {
       if (workspace.tabs.length > 0) {
@@ -447,7 +462,14 @@ export function App(): ReactNode {
     });
   }, []);
 
-  useEffect(() => window.agentApi.onUpdate((event) => setConversationStore(event.store)), []);
+  useEffect(
+    () =>
+      window.agentApi.onUpdate((event) => {
+        setConversationStore(event.store);
+        window.petApi.agentUpdate(event.store);
+      }),
+    []
+  );
 
   useEffect(() => {
     if (!workspaceLoaded) return;
@@ -669,8 +691,20 @@ export function App(): ReactNode {
     if (patch.defaultProfileId) setActiveProfile(patch.defaultProfileId);
     void window.settingsApi.save(nextSettings).then((savedSettings) => {
       setSettings(savedSettings);
-      if ('desktopPet' in patch || 'desktopPetAssetPath' in patch || 'desktopPetScale' in patch) {
-        void window.petApi.toggle(savedSettings.desktopPet);
+      if ('desktopPet' in patch || 'desktopPetNativeWindow' in patch || 'desktopPetAssetPath' in patch || 'desktopPetScale' in patch) {
+        if (
+          'desktopPetScale' in patch &&
+          !('desktopPet' in patch) &&
+          !('desktopPetNativeWindow' in patch) &&
+          !('desktopPetAssetPath' in patch)
+        ) {
+          void window.petApi.resize(savedSettings.desktopPetScale, true);
+        } else {
+          void window.petApi.toggle(savedSettings.desktopPet);
+        }
+        window.setTimeout(() => {
+          void window.petApi.nativeAvailable().then(setNativePetAvailable);
+        }, 120);
       }
     });
   }
@@ -986,6 +1020,15 @@ export function App(): ReactNode {
             </div>
           )}
         </section>
+        {settings.desktopPet &&
+        settings.desktopPetAssetPath &&
+        (!settings.desktopPetNativeWindow || !nativePetAvailable) ? (
+          <DesktopPet
+            embedded
+            settings={settings}
+            onScaleChange={(desktopPetScale) => updateSettings({ desktopPetScale })}
+          />
+        ) : null}
       </main>
     </Tooltip.Provider>
   );
@@ -1010,6 +1053,8 @@ function SettingsView({
     Partial<Record<CliId, 'idle' | 'checking' | 'available' | 'missing'>>
   >({});
   const [petAssets, setPetAssets] = useState<DesktopPetAsset[]>([]);
+  const [petPreviewUrls, setPetPreviewUrls] = useState<Record<string, string>>({});
+  const [petListOpen, setPetListOpen] = useState(true);
   const [activeCategory, setActiveCategory] = useState<
     'personalization' | 'system' | 'behavior' | 'shortcuts' | 'terminalBinding'
   >('personalization');
@@ -1024,6 +1069,26 @@ function SettingsView({
   useEffect(() => {
     void window.petApi.listAssets().then(setPetAssets);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function buildPreviews(): Promise<void> {
+      const entries = await Promise.all(
+        petAssets.map(async (asset) => [asset.manifestPath, await createPetPreviewUrl(asset)] as const)
+      );
+      if (cancelled) return;
+      setPetPreviewUrls(
+        entries.reduce<Record<string, string>>((items, [manifestPath, previewUrl]) => {
+          if (previewUrl) items[manifestPath] = previewUrl;
+          return items;
+        }, {})
+      );
+    }
+    void buildPreviews();
+    return () => {
+      cancelled = true;
+    };
+  }, [petAssets]);
 
   function getBinding(profile: CliProfile): CliBinding {
     return (
@@ -1077,7 +1142,6 @@ function SettingsView({
         return [result.asset!, ...nextItems];
       });
       onChange({ desktopPet: true, desktopPetAssetPath: result.asset.manifestPath });
-      void window.petApi.toggle(true);
     });
   }
 
@@ -1171,30 +1235,78 @@ function SettingsView({
               onChange={(event) => onChange({ desktopPet: event.target.checked })}
             />
           </label>
-          <div className="setting-row">
-            <span>
-              <strong>{t.desktopPetStyle}</strong>
-              <small>{t.desktopPetStyleDescription}</small>
-            </span>
-            <div className="pet-picker">
-              <SelectMenu
-                options={
-                  petAssets.length > 0
-                    ? [
-                        { label: t.unselectedDesktopPet, value: '' },
-                        ...petAssets.map((asset) => ({ label: asset.displayName, value: asset.manifestPath }))
-                      ]
-                    : [{ label: t.noDesktopPets, value: '' }]
-                }
-                value={settings.desktopPetAssetPath ?? ''}
-                onChange={(value) => {
-                  onChange({ desktopPetAssetPath: value || undefined });
-                }}
+          {settings.desktopPet ? (
+            <label className="setting-row">
+              <span>
+                <strong>{t.desktopPetNativeWindow}</strong>
+                <small>{t.desktopPetNativeWindowDescription}</small>
+              </span>
+              <input
+                checked={settings.desktopPetNativeWindow}
+                type="checkbox"
+                onChange={(event) => onChange({ desktopPetNativeWindow: event.target.checked })}
               />
-              <button className="settings-secondary-button" type="button" onClick={importDesktopPet}>
-                {t.importDesktopPet}
-              </button>
-            </div>
+            </label>
+          ) : null}
+          <div className="pet-panel">
+            <button className="pet-panel-header" type="button" onClick={() => setPetListOpen((isOpen) => !isOpen)}>
+              <span>
+                <strong>{t.desktopPetStyle}</strong>
+                <small>
+                  {petAssets.find((asset) => asset.manifestPath === settings.desktopPetAssetPath)?.displayName ??
+                    t.unselectedDesktopPet}
+                </small>
+              </span>
+              <ChevronDown className={petListOpen ? 'open' : undefined} size={16} />
+            </button>
+            {petListOpen ? (
+              <>
+                <div className="pet-panel-toolbar">
+                  <button type="button" onClick={importDesktopPet}>
+                    {t.importDesktopPet}
+                  </button>
+                  <button type="button" onClick={() => void window.petApi.listAssets().then(setPetAssets)}>
+                    {t.refreshDesktopPets}
+                  </button>
+                  <button type="button" onClick={() => void window.petApi.action('waving')}>
+                    {t.wakeDesktopPet}
+                  </button>
+                </div>
+                <div className="pet-list">
+                  <PetListItem
+                    description={t.desktopPetStyleDescription}
+                    name={t.unselectedDesktopPet}
+                    preview={<Bot size={26} />}
+                    selected={!settings.desktopPetAssetPath}
+                    selectLabel={t.selectDesktopPet}
+                    selectedLabel={t.selectedDesktopPet}
+                    onSelect={() => onChange({ desktopPetAssetPath: undefined })}
+                  />
+                  {petAssets.length > 0 ? (
+                    petAssets.map((asset) => (
+                      <PetListItem
+                        description={asset.description ?? asset.kind ?? t.desktopPetStyleDescription}
+                        key={asset.manifestPath}
+                        name={asset.displayName}
+                        preview={
+                          petPreviewUrls[asset.manifestPath] ? (
+                            <img alt="" src={petPreviewUrls[asset.manifestPath]} />
+                          ) : (
+                            <Bot size={26} />
+                          )
+                        }
+                        selected={settings.desktopPetAssetPath === asset.manifestPath}
+                        selectLabel={t.selectDesktopPet}
+                        selectedLabel={t.selectedDesktopPet}
+                        onSelect={() => onChange({ desktopPetAssetPath: asset.manifestPath })}
+                      />
+                    ))
+                  ) : (
+                    <div className="pet-list-empty">{t.noDesktopPets}</div>
+                  )}
+                </div>
+              </>
+            ) : null}
           </div>
           <div className="setting-row">
             <span>
@@ -1530,6 +1642,69 @@ function ConversationDialog({
           </button>
         </footer>
       </section>
+    </div>
+  );
+}
+
+function createPetPreviewUrl(asset: DesktopPetAsset): Promise<string | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = asset.atlas.cellWidth;
+      canvas.height = asset.atlas.cellHeight;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        resolve(null);
+        return;
+      }
+      context.imageSmoothingEnabled = false;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        image,
+        0,
+        0,
+        asset.atlas.cellWidth,
+        asset.atlas.cellHeight,
+        0,
+        0,
+        asset.atlas.cellWidth,
+        asset.atlas.cellHeight
+      );
+      resolve(canvas.toDataURL('image/png'));
+    };
+    image.onerror = () => resolve(null);
+    image.src = asset.spritesheetDataUrl;
+  });
+}
+
+function PetListItem({
+  name,
+  description,
+  preview,
+  selected,
+  selectLabel,
+  selectedLabel,
+  onSelect
+}: {
+  name: string;
+  description: string;
+  preview: ReactNode;
+  selected: boolean;
+  selectLabel: string;
+  selectedLabel: string;
+  onSelect: () => void;
+}): ReactNode {
+  return (
+    <div className="pet-list-item">
+      <div className="pet-list-preview">{preview}</div>
+      <span>
+        <strong>{name}</strong>
+        <small>{description}</small>
+      </span>
+      <button disabled={selected} type="button" onClick={onSelect}>
+        {selected ? selectedLabel : selectLabel}
+      </button>
     </div>
   );
 }

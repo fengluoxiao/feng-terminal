@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, dirname, extname, isAbsolute, join } from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -23,6 +24,13 @@ interface AgentLaunch {
 interface ProcessOutput {
   stdout: string;
   stderr: string;
+}
+
+const runningAgentProcesses = new Set<ChildProcess>();
+let agentUpdateListener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null = null;
+
+export function setAgentUpdateListener(listener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null): void {
+  agentUpdateListener = listener;
 }
 
 function nowIso(): string {
@@ -144,6 +152,7 @@ function runProcess(launch: AgentLaunch, cwd: string, env: NodeJS.ProcessEnv): P
       windowsHide: true,
       shell: false
     });
+    runningAgentProcesses.add(child);
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -155,15 +164,7 @@ function runProcess(launch: AgentLaunch, cwd: string, env: NodeJS.ProcessEnv): P
     }
 
     function killTree(): void {
-      if (platform() === 'win32' && child.pid) {
-        const commandShell = process.env.ComSpec || join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
-        spawn(commandShell, ['/d', '/c', 'taskkill', '/pid', String(child.pid), '/t', '/f'], {
-          windowsHide: true
-        });
-        return;
-      }
-
-      child.kill('SIGKILL');
+      killAgentProcessTree(child);
     }
 
     const timeout = setTimeout(() => {
@@ -180,6 +181,7 @@ function runProcess(launch: AgentLaunch, cwd: string, env: NodeJS.ProcessEnv): P
     child.stdin?.end();
     child.on('error', (error) => finish(() => reject(error)));
     child.on('close', (code) => {
+      runningAgentProcesses.delete(child);
       finish(() => {
         if (code === 0) {
           resolve({ stdout, stderr });
@@ -190,6 +192,25 @@ function runProcess(launch: AgentLaunch, cwd: string, env: NodeJS.ProcessEnv): P
       });
     });
   });
+}
+
+function killAgentProcessTree(child: ChildProcess): void {
+  if (platform() === 'win32' && child.pid) {
+    const commandShell = process.env.ComSpec || join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
+    spawn(commandShell, ['/d', '/c', 'taskkill', '/pid', String(child.pid), '/t', '/f'], {
+      windowsHide: true
+    });
+    return;
+  }
+
+  child.kill('SIGKILL');
+}
+
+export function killAllAgentProcesses(): void {
+  for (const child of runningAgentProcesses) {
+    killAgentProcessTree(child);
+  }
+  runningAgentProcesses.clear();
 }
 
 function resolveCommand(command: string, env: NodeJS.ProcessEnv): string {
@@ -330,6 +351,7 @@ async function runFallback(conversation: ConversationRecord, prompt: string): Pr
 }
 
 function broadcastAgentUpdate(conversationId: string, store: Awaited<ReturnType<typeof readConversationStore>>): void {
+  agentUpdateListener?.(store);
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('agent:update', { conversationId, store });
   }

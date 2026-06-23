@@ -20,6 +20,7 @@ export interface AppSettings {
   confirmClose: boolean;
   openLinksExternally: boolean;
   desktopPet: boolean;
+  desktopPetNativeWindow: boolean;
   desktopPetAssetPath?: string;
   desktopPetScale: number;
 }
@@ -65,6 +66,7 @@ export const defaultSettings: AppSettings = {
   confirmClose: true,
   openLinksExternally: true,
   desktopPet: true,
+  desktopPetNativeWindow: true,
   desktopPetAssetPath: undefined,
   desktopPetScale: 1
 };

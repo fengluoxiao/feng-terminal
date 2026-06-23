@@ -31,6 +31,13 @@ interface PtyLaunch {
 const sessions = new Map<string, TerminalSession>();
 const maxTranscriptLength = 250_000;
 
+export function killAllTerminalSessions(): void {
+  for (const [id, session] of sessions.entries()) {
+    session.pty.kill();
+    sessions.delete(id);
+  }
+}
+
 function getWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender);
 }

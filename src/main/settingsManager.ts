@@ -51,6 +51,10 @@ function sanitizeSettings(value: Partial<AppSettings> | null | undefined): AppSe
         : typeof legacyPet?.codexPet === 'boolean'
           ? legacyPet.codexPet
           : defaultSettings.desktopPet,
+    desktopPetNativeWindow:
+      typeof value?.desktopPetNativeWindow === 'boolean'
+        ? value.desktopPetNativeWindow
+        : defaultSettings.desktopPetNativeWindow,
     desktopPetAssetPath:
       typeof value?.desktopPetAssetPath === 'string' && value.desktopPetAssetPath.trim()
         ? value.desktopPetAssetPath.trim()
@@ -71,12 +75,11 @@ export async function readAppSettings(): Promise<AppSettings> {
   }
 }
 
-async function writeSettings(settings: AppSettings): Promise<AppSettings> {
+export async function saveAppSettings(settings: AppSettings): Promise<AppSettings> {
   const nextSettings = sanitizeSettings(settings);
   await mkdir(dirname(settingsPath), { recursive: true });
   await writeFile(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`, 'utf8');
   for (const window of BrowserWindow.getAllWindows()) {
-    if (window.getTitle() === 'Desktop Pet') continue;
     if (process.platform === 'win32') {
       window.setBackgroundMaterial(nextSettings.nativeMaterial ? 'acrylic' : 'none');
     } else if (process.platform === 'darwin') {
@@ -88,5 +91,5 @@ async function writeSettings(settings: AppSettings): Promise<AppSettings> {
 
 export function registerSettingsIpc(): void {
   ipcMain.handle('settings:load', () => readAppSettings());
-  ipcMain.handle('settings:save', (_event, settings: AppSettings) => writeSettings(settings));
+  ipcMain.handle('settings:save', (_event, settings: AppSettings) => saveAppSettings(settings));
 }

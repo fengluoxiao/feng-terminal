@@ -53,6 +53,10 @@ const windowApi = {
 const petApi = {
   focusMain: (): Promise<void> => ipcRenderer.invoke('pet:focus-main'),
   toggle: (enabled: boolean): Promise<void> => ipcRenderer.invoke('pet:toggle', enabled),
+  resize: (scale: number, persist = true): Promise<AppSettings> => ipcRenderer.invoke('pet:resize', scale, persist),
+  action: (action: string): Promise<void> => ipcRenderer.invoke('pet:action', action),
+  agentUpdate: (store: ConversationStore): void => ipcRenderer.send('pet:agent-update', store),
+  nativeAvailable: (): Promise<boolean> => ipcRenderer.invoke('pet:native-available'),
   listAssets: (): Promise<DesktopPetAsset[]> => ipcRenderer.invoke('pet:list-assets'),
   resolveAsset: (manifestPath?: string): Promise<DesktopPetAsset | null> =>
     ipcRenderer.invoke('pet:resolve-asset', manifestPath),

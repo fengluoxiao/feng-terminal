@@ -1,6 +1,7 @@
 node_modules
 out
 dist
+native/pet-sidecar/target
 *.log
 .DS_Store
 Thumbs.db

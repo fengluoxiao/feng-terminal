@@ -43,6 +43,10 @@ declare global {
     petApi: {
       focusMain: () => Promise<void>;
       toggle: (enabled: boolean) => Promise<void>;
+      resize: (scale: number, persist?: boolean) => Promise<AppSettings>;
+      action: (action: string) => Promise<void>;
+      agentUpdate: (store: ConversationStore) => void;
+      nativeAvailable: () => Promise<boolean>;
       listAssets: () => Promise<DesktopPetAsset[]>;
       resolveAsset: (manifestPath?: string) => Promise<DesktopPetAsset | null>;
       importAsset: () => Promise<DesktopPetImportResult>;
