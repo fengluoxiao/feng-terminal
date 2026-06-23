@@ -476,7 +476,7 @@ export function App(): ReactNode {
     const workspace: WorkspaceState = {
       tabs,
       activeTabId,
-      activeView,
+      activeView: 'terminal',
       conversationPanelOpen
     };
     const timeout = window.setTimeout(() => {
@@ -484,7 +484,7 @@ export function App(): ReactNode {
     }, 180);
 
     return () => window.clearTimeout(timeout);
-  }, [activeTabId, activeView, conversationPanelOpen, tabs, workspaceLoaded]);
+  }, [activeTabId, conversationPanelOpen, tabs, workspaceLoaded]);
 
   useEffect(() => {
     if (profiles.length === 0) return;

@@ -49,7 +49,7 @@ function sanitizeWorkspace(value: Partial<WorkspaceState> | null | undefined): W
   return {
     tabs,
     activeTabId,
-    activeView: value?.activeView === 'settings' ? 'settings' : 'terminal',
+    activeView: 'terminal',
     conversationPanelOpen:
       typeof value?.conversationPanelOpen === 'boolean'
         ? value.conversationPanelOpen

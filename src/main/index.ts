@@ -21,10 +21,37 @@ let petAction = 'idle';
 let petSidecarGeneration = 0;
 let petSidecarSyncTimer: NodeJS.Timeout | null = null;
 
+const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+const DWMWCP_ROUND = 2;
+
 function getPetSidecarPath(): string {
   const executable = process.platform === 'win32' ? 'pet-sidecar.exe' : 'pet-sidecar';
   if (app.isPackaged) return join(process.resourcesPath, 'native', executable);
   return join(app.getAppPath(), 'native', 'pet-sidecar', 'target', 'release', executable);
+}
+
+function getWindowsHwnd(window: BrowserWindow): bigint {
+  const handle = window.getNativeWindowHandle();
+  return handle.readBigUInt64LE(0);
+}
+
+function applySystemWindowCorners(window: BrowserWindow): void {
+  if (process.platform !== 'win32') return;
+  const hwnd = getWindowsHwnd(window);
+  const script = [
+    "Add-Type -Namespace Win32 -Name DwmApi -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"dwmapi.dll\")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attribute, ref int value, int size);';",
+    `$hwnd = [IntPtr]${hwnd.toString()};`,
+    `$preference = ${DWMWCP_ROUND};`,
+    `[Win32.DwmApi]::DwmSetWindowAttribute($hwnd, ${DWMWA_WINDOW_CORNER_PREFERENCE}, [ref]$preference, 4) | Out-Null`
+  ].join(' ');
+  try {
+    execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script], {
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+  } catch {
+    // Rounded corners remain best-effort on older Windows builds and some transparent windows.
+  }
 }
 
 function stopPetSidecar(): void {
@@ -251,6 +278,7 @@ function createWindow(settings: AppSettings): void {
     autoHideMenuBar: true,
     frame: process.platform === 'darwin',
     transparent: true,
+    roundedCorners: true,
     backgroundColor: '#00000000',
     backgroundMaterial: process.platform === 'win32' && settings.nativeMaterial ? 'acrylic' : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
@@ -266,9 +294,11 @@ function createWindow(settings: AppSettings): void {
   });
   mainWindow = window;
 
+  applySystemWindowCorners(window);
   setWindowFocusState(window, window.isFocused(), settings.nativeMaterial);
 
   window.once('ready-to-show', () => {
+    applySystemWindowCorners(window);
     window.focus();
   });
 
