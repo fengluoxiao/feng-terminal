@@ -8,6 +8,16 @@ export interface ConversationMessage {
   content: string;
   createdAt: string;
   status?: 'running' | 'done' | 'error';
+  attachments?: ConversationAttachment[];
+}
+
+export interface ConversationAttachment {
+  id: string;
+  type: 'image';
+  name: string;
+  mimeType: string;
+  path: string;
+  previewUrl: string;
 }
 
 export interface ConversationRun {
@@ -16,6 +26,7 @@ export interface ConversationRun {
   output: string;
   status: 'running' | 'done' | 'error';
   startedAt: string;
+  attachments?: ConversationAttachment[];
   finishedAt?: string;
   durationMs?: number;
   error?: string;

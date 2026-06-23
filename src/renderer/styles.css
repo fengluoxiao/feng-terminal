@@ -2004,6 +2004,38 @@ kbd {
   word-break: break-word;
 }
 
+.agent-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.agent-message-attachments img {
+  display: block;
+  width: min(220px, 48vw);
+  max-height: 180px;
+  object-fit: contain;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 7px;
+}
+
+.agent-message-attachments button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: zoom-in;
+}
+
+.agent-message-attachments button:focus-visible {
+  outline: 2px solid rgba(36, 107, 254, 0.5);
+  outline-offset: 2px;
+}
+
 .agent-message-running {
   color: #66717d;
 }
@@ -2036,11 +2068,97 @@ kbd {
   border-top: 1px solid rgba(70, 78, 88, 0.1);
 }
 
+.agent-composer {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.agent-composer.has-attachments {
+  gap: 7px;
+  padding: 8px;
+  background: #fbfcfd;
+  border: 1px solid rgba(68, 76, 86, 0.16);
+  border-radius: 8px;
+}
+
+.agent-attachment-tray {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-attachment-chip {
+  position: relative;
+  display: block;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 7px;
+}
+
+.agent-attachment-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+}
+
+.agent-attachment-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-attachment-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  padding: 0;
+  color: #ffffff;
+  background: rgba(20, 28, 38, 0.76);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-image-picker-button {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  color: #9aa3ad;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-image-picker-button:hover {
+  color: #246bfe;
+  background: rgba(36, 107, 254, 0.08);
+}
+
 .agent-input-row textarea {
   min-height: 40px;
   max-height: 132px;
   resize: vertical;
-  padding: 10px 11px;
+  padding: 10px 35px 10px 11px;
   color: #26313d;
   background: #fbfcfd;
   border: 1px solid rgba(68, 76, 86, 0.16);
@@ -2051,12 +2169,17 @@ kbd {
   outline: none;
 }
 
+.agent-composer.has-attachments textarea {
+  background: #ffffff;
+  border-color: rgba(68, 76, 86, 0.12);
+}
+
 .agent-input-row textarea:focus {
   border-color: #8ab4ff;
   box-shadow: 0 0 0 1px rgba(36, 107, 254, 0.14);
 }
 
-.agent-input-row button {
+.agent-input-row > button {
   display: grid;
   place-items: center;
   width: 34px;
@@ -2069,9 +2192,54 @@ kbd {
   cursor: pointer;
 }
 
-.agent-input-row button:disabled {
+.agent-input-row > button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.agent-image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(16, 22, 31, 0.58);
+}
+
+.agent-image-preview {
+  position: relative;
+  display: grid;
+  max-width: min(1040px, 92vw);
+  max-height: 88vh;
+  place-items: center;
+}
+
+.agent-image-preview img {
+  display: block;
+  max-width: min(1040px, 92vw);
+  max-height: 88vh;
+  object-fit: contain;
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.28);
+}
+
+.agent-image-preview-close {
+  position: absolute;
+  top: -13px;
+  right: -13px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  color: #ffffff;
+  background: rgba(20, 28, 38, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  cursor: pointer;
 }
 
 .context-panel {

@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { delimiter, dirname, extname, isAbsolute, join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { getCliProfile } from './cliProfiles';
 import {
   appendConversationMessages,
@@ -12,8 +13,8 @@ import {
   replaceConversationMessageAndRun
 } from './conversationManager';
 import { readAppSettings } from './settingsManager';
-import type { AgentSendRequest, AgentSendResult } from '../shared/agent';
-import type { ConversationMessage, ConversationRecord, ConversationRun } from '../shared/conversation';
+import type { AgentChooseImageResult, AgentImageAttachmentInput, AgentSendRequest, AgentSendResult } from '../shared/agent';
+import type { ConversationAttachment, ConversationMessage, ConversationRecord, ConversationRun } from '../shared/conversation';
 import type { CliId } from '../shared/terminal';
 
 interface AgentLaunch {
@@ -27,6 +28,7 @@ interface ProcessOutput {
 }
 
 const runningAgentProcesses = new Set<ChildProcess>();
+const attachmentsRoot = join(app.getPath('userData'), 'attachments');
 let agentUpdateListener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null = null;
 
 export function setAgentUpdateListener(listener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null): void {
@@ -37,23 +39,30 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function createMessage(role: ConversationMessage['role'], content: string, status?: ConversationMessage['status']): ConversationMessage {
+function createMessage(
+  role: ConversationMessage['role'],
+  content: string,
+  status?: ConversationMessage['status'],
+  attachments?: ConversationAttachment[]
+): ConversationMessage {
   return {
     id: randomUUID(),
     role,
     content,
     createdAt: nowIso(),
-    status
+    status,
+    attachments
   };
 }
 
-function createRunningRun(prompt: string, startedAt: string): ConversationRun {
+function createRunningRun(prompt: string, startedAt: string, attachments?: ConversationAttachment[]): ConversationRun {
   return {
     id: randomUUID(),
     prompt,
     output: '',
     status: 'running',
-    startedAt
+    startedAt,
+    attachments
   };
 }
 
@@ -274,6 +283,94 @@ function createCodexLaunch(command: string, args: string[], env: NodeJS.ProcessE
   return createLaunch(command, args, env);
 }
 
+function getAttachmentExtension(mimeType: string): string {
+  if (mimeType === 'image/jpeg') return '.jpg';
+  if (mimeType === 'image/webp') return '.webp';
+  if (mimeType === 'image/gif') return '.gif';
+  return '.png';
+}
+
+function getImageMimeType(filePath: string): string {
+  const extension = extname(filePath).toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.webp') return 'image/webp';
+  if (extension === '.gif') return 'image/gif';
+  return 'image/png';
+}
+
+function decodeImageDataUrl(dataUrl: string): { mimeType: string; bytes: Buffer } | null {
+  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([a-z0-9+/=]+)$/iu.exec(dataUrl);
+  if (!match) return null;
+  return {
+    mimeType: match[1].toLowerCase(),
+    bytes: Buffer.from(match[2], 'base64')
+  };
+}
+
+function sanitizeAttachmentName(value: string, fallback: string): string {
+  const cleaned = value.replace(/[<>:"/\\|?*\x00-\x1f]/gu, '').trim();
+  return cleaned || fallback;
+}
+
+async function saveImageAttachments(
+  conversationId: string,
+  attachments: AgentImageAttachmentInput[] | undefined
+): Promise<ConversationAttachment[]> {
+  if (!attachments?.length) return [];
+  const conversationRoot = join(attachmentsRoot, conversationId);
+  await mkdir(conversationRoot, { recursive: true });
+
+  const saved: ConversationAttachment[] = [];
+  for (const attachment of attachments.slice(0, 6)) {
+    const decoded = decodeImageDataUrl(attachment.dataUrl);
+    if (!decoded || decoded.bytes.length === 0 || decoded.bytes.length > 12 * 1024 * 1024) continue;
+
+    const id = attachment.id || randomUUID();
+    const extension = getAttachmentExtension(decoded.mimeType);
+    const name = sanitizeAttachmentName(attachment.name, `image-${saved.length + 1}${extension}`);
+    const filePath = join(conversationRoot, `${id}${extension}`);
+    await writeFile(filePath, decoded.bytes);
+    saved.push({
+      id,
+      type: 'image',
+      name,
+      mimeType: decoded.mimeType,
+      path: filePath,
+      previewUrl: attachment.dataUrl
+    });
+  }
+
+  return saved;
+}
+
+async function chooseImageAttachment(event: Electron.IpcMainInvokeEvent): Promise<AgentChooseImageResult | null> {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  const options: Electron.OpenDialogOptions = {
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+  const filePath = result.filePaths[0];
+  if (result.canceled || !filePath) return null;
+
+  const mimeType = getImageMimeType(filePath);
+  const bytes = await readFile(filePath);
+  return {
+    name: basename(filePath),
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`
+  };
+}
+
+function createPromptWithAttachments(prompt: string, attachments: ConversationAttachment[]): string {
+  if (!attachments.length) return prompt;
+  const lines = attachments.map(
+    (attachment, index) =>
+      `${index + 1}. ${attachment.name} (${attachment.mimeType})\n   path: ${attachment.path}\n   markdown: ![${attachment.name}](${attachment.path})`
+  );
+  return `${prompt}\n\nImage attachments:\n${lines.join('\n')}\n\nUse these images as visual input. If your CLI cannot attach them natively, read them from the local paths above.`;
+}
+
 function parseCodexJsonOutput(stdout: string): { output: string; sessionId?: string } {
   const lines = stdout.split(/\r?\n/).filter(Boolean);
   let sessionId: string | undefined;
@@ -288,7 +385,10 @@ function parseCodexJsonOutput(stdout: string): { output: string; sessionId?: str
       const itemType = typeof item?.type === 'string' ? item.type : '';
 
       if (!sessionId) {
-        const id = payload.thread_id ?? payload.id ?? payload.session_id ?? payload.sessionId;
+        const id =
+          type === 'session_meta' || type === 'session.created' || type === 'session_configured'
+            ? (payload.id ?? payload.session_id ?? payload.sessionId)
+            : (payload.session_id ?? payload.sessionId);
         if (typeof id === 'string') sessionId = id;
       }
 
@@ -313,36 +413,74 @@ function parseCodexJsonOutput(stdout: string): { output: string; sessionId?: str
   };
 }
 
-async function runCodex(conversation: ConversationRecord, prompt: string): Promise<{ output: string; sessionId?: string }> {
+function isMissingCodexRolloutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /thread\/resume failed: no rollout found for thread id/iu.test(message);
+}
+
+async function runCodex(
+  conversation: ConversationRecord,
+  prompt: string,
+  attachments: ConversationAttachment[]
+): Promise<{ output: string; sessionId?: string }> {
   const binding = await getBoundCommand('codex');
   const env = createAgentEnv();
-  const args =
-    conversation.sessionId || conversation.mode === 'resume-last'
+  const imageArgs = attachments.flatMap((attachment) => ['--image', attachment.path]);
+  const promptWithAttachments = createPromptWithAttachments(prompt, attachments);
+
+  async function runWithSession(sessionId: string | undefined, resumeLast: boolean): Promise<{ output: string; sessionId?: string }> {
+    const args =
+      sessionId || resumeLast
       ? [
           ...binding.args,
           'exec',
           'resume',
-          ...(conversation.sessionId ? [conversation.sessionId] : ['--last']),
+          ...imageArgs,
           '--json',
           '--skip-git-repo-check',
-          prompt
+          ...(sessionId ? [sessionId] : ['--last']),
+          promptWithAttachments
         ]
-      : [...binding.args, 'exec', '--json', '--skip-git-repo-check', '-C', conversation.projectPath, prompt];
+      : [
+          ...binding.args,
+          'exec',
+          ...imageArgs,
+          '--json',
+          '--skip-git-repo-check',
+          '-C',
+          conversation.projectPath,
+          promptWithAttachments
+        ];
 
-  const launch = createCodexLaunch(binding.command, args, env);
-  const { stdout, stderr } = await runProcess(launch, conversation.projectPath, env);
-  const parsed = parseCodexJsonOutput(stdout);
+    const launch = createCodexLaunch(binding.command, args, env);
+    const { stdout, stderr } = await runProcess(launch, conversation.projectPath, env);
+    const parsed = parseCodexJsonOutput(stdout);
 
-  return {
-    output: parsed.output || stderr.trim() || 'Codex completed without text output.',
-    sessionId: parsed.sessionId
-  };
+    return {
+      output: parsed.output || stderr.trim() || 'Codex completed without text output.',
+      sessionId: parsed.sessionId
+    };
+  }
+
+  try {
+    return await runWithSession(conversation.sessionId, conversation.mode === 'resume-last');
+  } catch (error) {
+    if (conversation.sessionId && isMissingCodexRolloutError(error)) {
+      return runWithSession(undefined, true);
+    }
+
+    throw error;
+  }
 }
 
-async function runFallback(conversation: ConversationRecord, prompt: string): Promise<{ output: string; sessionId?: string }> {
+async function runFallback(
+  conversation: ConversationRecord,
+  prompt: string,
+  attachments: ConversationAttachment[]
+): Promise<{ output: string; sessionId?: string }> {
   const binding = await getBoundCommand(conversation.cliId);
   const env = createAgentEnv();
-  const launch = createLaunch(binding.command, [...binding.args, prompt], env);
+  const launch = createLaunch(binding.command, [...binding.args, createPromptWithAttachments(prompt, attachments)], env);
   const { stdout, stderr } = await runProcess(launch, conversation.projectPath, env);
 
   return {
@@ -369,15 +507,22 @@ async function sendAgentMessage(request: AgentSendRequest): Promise<AgentSendRes
   }
 
   const startedAt = nowIso();
-  const userMessage = createMessage('user', prompt, 'done');
+  const attachments = await saveImageAttachments(conversation.id, request.attachments);
+  if (request.attachments?.length && !attachments.length) {
+    throw new Error('Image attachment could not be read from the clipboard.');
+  }
+  const userMessage = createMessage('user', prompt, 'done', attachments);
   const assistantMessage = createMessage('assistant', 'Running...', 'running');
-  const runningRun = createRunningRun(prompt, startedAt);
+  const runningRun = createRunningRun(prompt, startedAt, attachments);
   const startedStore = await appendConversationMessages(conversation.id, [userMessage, assistantMessage], undefined, runningRun);
   broadcastAgentUpdate(conversation.id, startedStore);
 
   void (async () => {
     try {
-      const result = conversation.cliId === 'codex' ? await runCodex(conversation, prompt) : await runFallback(conversation, prompt);
+      const result =
+        conversation.cliId === 'codex'
+          ? await runCodex(conversation, prompt, attachments)
+          : await runFallback(conversation, prompt, attachments);
       const nextMessage: ConversationMessage = {
         ...assistantMessage,
         content: result.output,
@@ -404,4 +549,5 @@ async function sendAgentMessage(request: AgentSendRequest): Promise<AgentSendRes
 
 export function registerAgentIpc(): void {
   ipcMain.handle('agent:send', (_event, request: AgentSendRequest) => sendAgentMessage(request));
+  ipcMain.handle('agent:choose-image', (event) => chooseImageAttachment(event));
 }

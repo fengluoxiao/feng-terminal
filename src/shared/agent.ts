@@ -3,11 +3,25 @@ import type { ConversationStore } from './conversation';
 export interface AgentSendRequest {
   conversationId: string;
   prompt: string;
+  attachments?: AgentImageAttachmentInput[];
 }
 
 export interface AgentSendResult {
   store: ConversationStore;
   output: string;
+}
+
+export interface AgentImageAttachmentInput {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+}
+
+export interface AgentChooseImageResult {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
 }
 
 export interface AgentUpdateEvent {

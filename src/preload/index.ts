@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { clipboard, contextBridge, ipcRenderer } from 'electron';
 import type {
   ConversationBindSessionRequest,
   ConversationCreateRequest,
@@ -17,7 +17,7 @@ import type {
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
-import type { AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
+import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
 import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 const terminalApi = {
@@ -93,10 +93,18 @@ const workspaceApi = {
 
 const agentApi = {
   send: (request: AgentSendRequest): Promise<AgentSendResult> => ipcRenderer.invoke('agent:send', request),
+  chooseImage: (): Promise<AgentChooseImageResult | null> => ipcRenderer.invoke('agent:choose-image'),
   onUpdate: (callback: (event: AgentUpdateEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AgentUpdateEvent) => callback(payload);
     ipcRenderer.on('agent:update', listener);
     return () => ipcRenderer.removeListener('agent:update', listener);
+  }
+};
+
+const clipboardApi = {
+  readImage: (): string | null => {
+    const image = clipboard.readImage();
+    return image.isEmpty() ? null : image.toDataURL();
   }
 };
 
@@ -107,3 +115,4 @@ contextBridge.exposeInMainWorld('settingsApi', settingsApi);
 contextBridge.exposeInMainWorld('conversationApi', conversationApi);
 contextBridge.exposeInMainWorld('workspaceApi', workspaceApi);
 contextBridge.exposeInMainWorld('agentApi', agentApi);
+contextBridge.exposeInMainWorld('clipboardApi', clipboardApi);

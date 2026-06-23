@@ -8,6 +8,7 @@ import type { OpenDialogOptions } from 'electron';
 import { emptyConversationStore } from '../shared/conversation';
 import type {
   ConversationBindSessionRequest,
+  ConversationAttachment,
   ConversationCreateRequest,
   ConversationMessage,
   ConversationRecord,
@@ -79,6 +80,7 @@ function sanitizeRun(value: Partial<ConversationRun> | null | undefined): Conver
     output: staleRunning ? 'Interrupted.' : typeof value.output === 'string' ? normalizeCodexJsonlText(value.output) : '',
     status,
     startedAt,
+    attachments: sanitizeAttachments(value.attachments),
     finishedAt: typeof value.finishedAt === 'string' ? value.finishedAt : staleRunning ? now : undefined,
     durationMs: typeof value.durationMs === 'number' ? value.durationMs : undefined,
     error: staleRunning ? 'Interrupted.' : typeof value.error === 'string' ? normalizeCodexJsonlText(value.error) : undefined
@@ -98,7 +100,39 @@ function sanitizeMessage(value: Partial<ConversationMessage> | null | undefined)
     role,
     content: staleRunning ? 'Interrupted.' : normalizeCodexJsonlText(value.content),
     createdAt,
-    status
+    status,
+    attachments: sanitizeAttachments(value.attachments)
+  };
+}
+
+function sanitizeAttachments(value: unknown): ConversationAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value
+    .map((item) => sanitizeAttachment(item as Partial<ConversationAttachment> | null | undefined))
+    .filter((item): item is ConversationAttachment => Boolean(item));
+  return attachments.length ? attachments : undefined;
+}
+
+function sanitizeAttachment(value: Partial<ConversationAttachment> | null | undefined): ConversationAttachment | null {
+  if (
+    !value ||
+    typeof value.id !== 'string' ||
+    value.type !== 'image' ||
+    typeof value.name !== 'string' ||
+    typeof value.mimeType !== 'string' ||
+    typeof value.path !== 'string' ||
+    typeof value.previewUrl !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    type: 'image',
+    name: value.name,
+    mimeType: value.mimeType,
+    path: normalize(value.path),
+    previewUrl: value.previewUrl
   };
 }
 
