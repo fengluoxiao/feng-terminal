@@ -17,7 +17,7 @@ import type {
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
-import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
+import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentSkill, AgentUpdateEvent } from '../shared/agent';
 import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 const terminalApi = {
@@ -94,6 +94,7 @@ const workspaceApi = {
 const agentApi = {
   send: (request: AgentSendRequest): Promise<AgentSendResult> => ipcRenderer.invoke('agent:send', request),
   chooseImage: (): Promise<AgentChooseImageResult | null> => ipcRenderer.invoke('agent:choose-image'),
+  listSkills: (): Promise<AgentSkill[]> => ipcRenderer.invoke('agent:list-skills'),
   onUpdate: (callback: (event: AgentUpdateEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AgentUpdateEvent) => callback(payload);
     ipcRenderer.on('agent:update', listener);

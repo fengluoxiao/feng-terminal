@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
@@ -13,7 +14,13 @@ import {
   replaceConversationMessageAndRun
 } from './conversationManager';
 import { readAppSettings } from './settingsManager';
-import type { AgentChooseImageResult, AgentImageAttachmentInput, AgentSendRequest, AgentSendResult } from '../shared/agent';
+import type {
+  AgentChooseImageResult,
+  AgentImageAttachmentInput,
+  AgentSendRequest,
+  AgentSendResult,
+  AgentSkill
+} from '../shared/agent';
 import type { ConversationAttachment, ConversationMessage, ConversationRecord, ConversationRun } from '../shared/conversation';
 import type { CliId } from '../shared/terminal';
 
@@ -29,6 +36,7 @@ interface ProcessOutput {
 
 const runningAgentProcesses = new Set<ChildProcess>();
 const attachmentsRoot = join(app.getPath('userData'), 'attachments');
+const codexSkillsRoot = join(homedir(), '.codex', 'skills');
 let agentUpdateListener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null = null;
 
 export function setAgentUpdateListener(listener: ((store: Awaited<ReturnType<typeof readConversationStore>>) => void) | null): void {
@@ -312,6 +320,74 @@ function sanitizeAttachmentName(value: string, fallback: string): string {
   return cleaned || fallback;
 }
 
+function toSkillLabel(value: string): string {
+  return value
+    .split(/[-_:]+/u)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function parseSkillFrontmatter(contents: string): { name?: string; description?: string } {
+  if (!contents.startsWith('---')) return {};
+  const end = contents.indexOf('\n---', 3);
+  if (end === -1) return {};
+  const metadata = contents.slice(3, end).split(/\r?\n/);
+  const result: { name?: string; description?: string } = {};
+
+  for (const line of metadata) {
+    const match = /^([a-zA-Z0-9_-]+):\s*(.*)$/u.exec(line);
+    if (!match) continue;
+    const key = match[1];
+    const value = match[2].replace(/^["']|["']$/gu, '').trim();
+    if (key === 'name') result.name = value;
+    if (key === 'description') result.description = value;
+  }
+
+  return result;
+}
+
+async function listCodexSkills(): Promise<AgentSkill[]> {
+  const skills: AgentSkill[] = [];
+
+  async function visit(directory: string, depth: number): Promise<void> {
+    if (depth > 3 || skills.length >= 400) return;
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          await visit(entryPath, depth + 1);
+          return;
+        }
+
+        if (!entry.isFile() || entry.name.toLowerCase() !== 'skill.md') return;
+        const skillDirectory = basename(dirname(entryPath));
+        const contents = await readFile(entryPath, 'utf8');
+        const metadata = parseSkillFrontmatter(contents);
+        const id = metadata.name || skillDirectory;
+        skills.push({
+          id,
+          label: toSkillLabel(id),
+          command: `/${id}`,
+          description: metadata.description || `Use the ${id} skill.`,
+          prompt: `Use the ${id} skill.\n\n`,
+          source: skillDirectory === id ? undefined : skillDirectory
+        });
+      })
+    );
+  }
+
+  await visit(codexSkillsRoot, 0);
+  return skills.sort((left, right) => left.command.localeCompare(right.command));
+}
+
 async function saveImageAttachments(
   conversationId: string,
   attachments: AgentImageAttachmentInput[] | undefined
@@ -550,4 +626,5 @@ async function sendAgentMessage(request: AgentSendRequest): Promise<AgentSendRes
 export function registerAgentIpc(): void {
   ipcMain.handle('agent:send', (_event, request: AgentSendRequest) => sendAgentMessage(request));
   ipcMain.handle('agent:choose-image', (event) => chooseImageAttachment(event));
+  ipcMain.handle('agent:list-skills', () => listCodexSkills());
 }

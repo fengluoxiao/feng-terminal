@@ -24,6 +24,15 @@ export interface AgentChooseImageResult {
   dataUrl: string;
 }
 
+export interface AgentSkill {
+  id: string;
+  label: string;
+  command: string;
+  description: string;
+  prompt: string;
+  source?: string;
+}
+
 export interface AgentUpdateEvent {
   conversationId: string;
   store: ConversationStore;

@@ -1,13 +1,36 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ClipboardEvent, ReactNode } from 'react';
 import { Bot, CheckCircle2, Image, LoaderCircle, RotateCcw, SendHorizonal, X } from 'lucide-react';
 import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
 import type { CliId } from '../../shared/terminal';
-import type { AgentImageAttachmentInput } from '../../shared/agent';
+import type { AgentImageAttachmentInput, AgentSkill } from '../../shared/agent';
+import { getCliSkills } from '../../shared/skills';
 
 interface ImagePreviewState {
   name: string;
   url: string;
+}
+
+function getSkillSearchScore(skill: AgentSkill, query: string): number {
+  if (!query) return 1;
+  const command = skill.command.toLowerCase();
+  const label = skill.label.toLowerCase();
+  const source = (skill.source ?? '').toLowerCase();
+  const description = skill.description.toLowerCase();
+  const id = skill.id.toLowerCase();
+
+  if (command === `/${query}` || id === query) return 1000;
+  if (command.startsWith(`/${query}`) || id.startsWith(query)) return 800;
+  if (label.startsWith(query)) return 700;
+  if (source.startsWith(query)) return 620;
+  if (command.includes(query) || id.includes(query)) return 520;
+  if (label.includes(query)) return 460;
+  if (source.includes(query)) return 380;
+  if (description.includes(query)) return 220;
+
+  const words = query.split(/\s+/u).filter(Boolean);
+  if (words.length > 1 && words.every((word) => `${command} ${label} ${source} ${description}`.includes(word))) return 120;
+  return 0;
 }
 
 interface AgentPaneProps {
@@ -40,6 +63,8 @@ export function AgentPane({
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<AgentImageAttachmentInput[]>([]);
   const [previewImage, setPreviewImage] = useState<ImagePreviewState | null>(null);
+  const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+  const [codexSkills, setCodexSkills] = useState<AgentSkill[] | null>(null);
   const [sending, setSending] = useState(false);
   const conversation = useMemo<ConversationRecord | undefined>(
     () => conversationStore.conversations.find((item) => item.id === conversationId),
@@ -47,6 +72,40 @@ export function AgentPane({
   );
   const messages = conversation?.messages ?? [];
   const running = sending || messages.some((message) => message.status === 'running');
+  const skills = useMemo(
+    () => (profileId === 'codex' && codexSkills?.length ? codexSkills : getCliSkills(profileId)),
+    [codexSkills, profileId]
+  );
+  const skillQuery = prompt.startsWith('/') && !prompt.includes('\n') ? prompt.slice(1).trim().toLowerCase() : null;
+  const matchingSkills = useMemo(
+    () => {
+      if (skillQuery === null) return [];
+      return skills
+        .map((skill) => ({ skill, score: getSkillSearchScore(skill, skillQuery) }))
+        .filter((item) => item.score > 0)
+        .sort((left, right) => right.score - left.score || left.skill.command.localeCompare(right.skill.command))
+        .map((item) => item.skill)
+        .slice(0, 80);
+    },
+    [skillQuery, skills]
+  );
+  const showSkillMenu = matchingSkills.length > 0;
+
+  useEffect(() => {
+    setSelectedSkillIndex(0);
+  }, [skillQuery, profileId]);
+
+  useEffect(() => {
+    if (profileId !== 'codex' || codexSkills) return;
+    void window.agentApi
+      .listSkills()
+      .then((items) => {
+        if (items.length) setCodexSkills(items);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+      });
+  }, [codexSkills, profileId]);
 
   function sendText(value: string, nextAttachments = attachments): void {
     const nextPrompt = value.trim();
@@ -75,6 +134,14 @@ export function AgentPane({
 
   function sendPrompt(): void {
     sendText(prompt);
+  }
+
+  function insertSkill(skill: AgentSkill): void {
+    setPrompt((current) => {
+      const nextText = current.startsWith('/') && !current.includes('\n') ? '' : current;
+      return `${skill.prompt}${nextText}`.trimStart();
+    });
+    setSelectedSkillIndex(0);
   }
 
   function retryBefore(index: number): void {
@@ -248,15 +315,59 @@ export function AgentPane({
             <textarea
               value={prompt}
               placeholder={labels.inputPlaceholder}
-              onChange={(event) => setPrompt(event.target.value)}
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                setSelectedSkillIndex(0);
+              }}
               onPaste={pasteImages}
               onKeyDown={(event) => {
+                if (showSkillMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                  event.preventDefault();
+                  setSelectedSkillIndex((current) => {
+                    const offset = event.key === 'ArrowDown' ? 1 : -1;
+                    return (current + offset + matchingSkills.length) % matchingSkills.length;
+                  });
+                  return;
+                }
+
+                if (showSkillMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+                  event.preventDefault();
+                  insertSkill(matchingSkills[selectedSkillIndex] ?? matchingSkills[0]);
+                  return;
+                }
+
+                if (showSkillMenu && event.key === 'Escape') {
+                  event.preventDefault();
+                  setPrompt('');
+                  return;
+                }
+
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
                   sendPrompt();
                 }
               }}
             />
+            {showSkillMenu ? (
+              <div className="agent-skill-menu">
+                <div className="agent-skill-menu-meta">
+                  <span>{skillQuery ? `Search: ${skillQuery}` : `${skills.length} skills`}</span>
+                </div>
+                {matchingSkills.map((skill, index) => (
+                  <button
+                    className={index === selectedSkillIndex ? 'selected' : undefined}
+                    key={skill.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertSkill(skill)}
+                  >
+                    <span>{skill.command}</span>
+                    <strong>{skill.label}</strong>
+                    <small>{skill.source ? `${skill.source} - ${skill.description}` : skill.description}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <button type="button" disabled={(!prompt.trim() && attachments.length === 0) || sending || !conversation} onClick={sendPrompt}>
             <SendHorizonal size={15} />

@@ -18,7 +18,7 @@ import type {
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
-import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentUpdateEvent } from '../shared/agent';
+import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentSkill, AgentUpdateEvent } from '../shared/agent';
 import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 declare global {
@@ -72,6 +72,7 @@ declare global {
     agentApi: {
       send: (request: AgentSendRequest) => Promise<AgentSendResult>;
       chooseImage: () => Promise<AgentChooseImageResult | null>;
+      listSkills: () => Promise<AgentSkill[]>;
       onUpdate: (callback: (event: AgentUpdateEvent) => void) => () => void;
     };
     clipboardApi: {

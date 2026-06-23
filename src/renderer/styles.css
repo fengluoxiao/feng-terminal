@@ -2179,6 +2179,79 @@ kbd {
   box-shadow: 0 0 0 1px rgba(36, 107, 254, 0.14);
 }
 
+.agent-skill-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 12;
+  display: flex;
+  width: 100%;
+  max-height: 238px;
+  flex-direction: column;
+  gap: 3px;
+  overflow: auto;
+  padding: 5px;
+  background: #ffffff;
+  border: 1px solid rgba(68, 76, 86, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 16px 38px rgba(20, 28, 38, 0.14);
+}
+
+.agent-skill-menu button {
+  display: grid;
+  grid-template-columns: minmax(86px, 130px) minmax(0, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: #34404d;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-skill-menu-meta {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 7px;
+  color: #6b7580;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.agent-skill-menu button:hover,
+.agent-skill-menu button.selected {
+  background: #eef5ff;
+  color: #163b68;
+}
+
+.agent-skill-menu span {
+  color: #246bfe;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.agent-skill-menu strong,
+.agent-skill-menu small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-skill-menu strong {
+  font-size: 13px;
+}
+
+.agent-skill-menu small {
+  color: #69737f;
+  font-size: 12px;
+}
+
 .agent-input-row > button {
   display: grid;
   place-items: center;
