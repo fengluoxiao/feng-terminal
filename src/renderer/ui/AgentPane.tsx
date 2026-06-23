@@ -11,6 +11,11 @@ interface ImagePreviewState {
   url: string;
 }
 
+type MarkdownBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'code'; text: string; language?: string }
+  | { type: 'list'; items: string[] };
+
 export interface AgentContextSource {
   id: string;
   type: 'conversation' | 'terminal';
@@ -58,6 +63,118 @@ function getContextSourceSearchScore(source: AgentContextSource, query: string):
   if (project.includes(query)) return 420;
   if (id.includes(query)) return 260;
   return 0;
+}
+
+function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let codeLines: string[] | null = null;
+  let codeLanguage: string | undefined;
+
+  function flushParagraph(): void {
+    if (!paragraph.length) return;
+    blocks.push({ type: 'paragraph', text: paragraph.join('\n').trim() });
+    paragraph = [];
+  }
+
+  function flushList(): void {
+    if (!listItems.length) return;
+    blocks.push({ type: 'list', items: listItems });
+    listItems = [];
+  }
+
+  for (const line of lines) {
+    const fence = /^```([a-z0-9_-]*)\s*$/iu.exec(line.trim());
+    if (fence) {
+      if (codeLines) {
+        blocks.push({ type: 'code', text: codeLines.join('\n'), language: codeLanguage });
+        codeLines = null;
+        codeLanguage = undefined;
+        continue;
+      }
+
+      flushParagraph();
+      flushList();
+      codeLines = [];
+      codeLanguage = fence[1] || undefined;
+      continue;
+    }
+
+    if (codeLines) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const listMatch = /^\s*[-*]\s+(.+)$/u.exec(line);
+    if (listMatch) {
+      flushParagraph();
+      listItems.push(listMatch[1]);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+
+  if (codeLines) blocks.push({ type: 'code', text: codeLines.join('\n'), language: codeLanguage });
+  flushParagraph();
+  flushList();
+
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const parts = text.split(/(`[^`]+`)/gu);
+  parts.forEach((part, index) => {
+    if (!part) return;
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 1) {
+      nodes.push(<code key={index}>{part.slice(1, -1)}</code>);
+      return;
+    }
+    nodes.push(part);
+  });
+  return nodes;
+}
+
+function MarkdownMessage({ content, className }: { content: string; className?: string }): ReactNode {
+  const blocks = parseMarkdownBlocks(content);
+  if (!blocks.length) return <p className={className} />;
+
+  return (
+    <div className={className ? `agent-message-markdown ${className}` : 'agent-message-markdown'}>
+      {blocks.map((block, index) => {
+        if (block.type === 'code') {
+          return (
+            <pre key={index}>
+              {block.language ? <span>{block.language}</span> : null}
+              <code>{block.text}</code>
+            </pre>
+          );
+        }
+
+        if (block.type === 'list') {
+          return (
+            <ul key={index}>
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+
+        return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
+      })}
+    </div>
+  );
 }
 
 interface AgentPaneProps {
@@ -135,7 +252,12 @@ export function AgentPane({
       .filter((item) => item.conversation?.id !== conversationId && !referencedContextIds.includes(item.id))
       .map((item) => ({ source: item, score: getContextSourceSearchScore(item, referenceQuery) }))
       .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score || left.source.title.localeCompare(right.source.title))
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          Number(right.source.type === 'terminal') - Number(left.source.type === 'terminal') ||
+          left.source.title.localeCompare(right.source.title)
+      )
       .map((item) => item.source)
       .slice(0, 80);
   }, [contextSources, conversationId, referenceQuery, referencedContextIds]);
@@ -332,13 +454,16 @@ export function AgentPane({
               <div className="agent-message-avatar">{message.role === 'user' ? '你' : <Bot size={13} />}</div>
               <div className="agent-message-bubble">
                 <span className="agent-message-author">{message.role === 'user' ? labels.user : profileName}</span>
-                <p className={message.status === 'running' ? 'agent-message-running' : undefined}>
-                  {message.content === 'Interrupted.'
-                    ? labels.interrupted
-                    : message.status === 'running'
-                      ? labels.thinking
-                      : message.content}
-                </p>
+                <MarkdownMessage
+                  className={message.status === 'running' ? 'agent-message-running' : undefined}
+                  content={
+                    message.content === 'Interrupted.'
+                      ? labels.interrupted
+                      : message.status === 'running'
+                        ? labels.thinking
+                        : message.content
+                  }
+                />
                 {message.attachments?.length ? (
                   <div className="agent-message-attachments">
                     {message.attachments.map((attachment) => (

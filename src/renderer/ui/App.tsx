@@ -434,26 +434,38 @@ export function App(): ReactNode {
     (conversation) => conversation.id === activeTab.conversationId
   );
   const contextSources = useMemo<AgentContextSource[]>(
-    () => [
-      ...conversationStore.conversations.map((conversation) => ({
-        id: `conversation:${conversation.id}`,
-        type: 'conversation' as const,
-        title: conversation.title,
-        cliId: conversation.cliId,
-        projectPath: conversation.projectPath,
-        conversation
-      })),
-      ...tabs
-        .filter((tab) => tab.profileId === 'shell')
-        .map((tab) => ({
-          id: `terminal:${tab.sessionKey ?? tab.id}`,
-          type: 'terminal' as const,
+    () => {
+      const terminalSources = new Map<string, AgentContextSource>();
+      for (const tab of tabs) {
+        if (tab.profileId !== 'shell') continue;
+        const sessionKey = tab.sessionKey ?? tab.id;
+        terminalSources.set(sessionKey, {
+          id: `terminal:${sessionKey}`,
+          type: 'terminal',
           title: tab.title,
-          cliId: 'shell' as const,
+          cliId: 'shell',
           projectPath: tab.projectPath ?? tab.cwd,
-          sessionKey: tab.sessionKey ?? tab.id
-        }))
-    ],
+          sessionKey
+        });
+      }
+
+      const terminalItems = Array.from(terminalSources.values());
+      const hasProjectTerminal = terminalItems.some((item) => item.projectPath);
+
+      return [
+        ...conversationStore.conversations
+          .filter((conversation) => conversation.cliId !== 'shell')
+          .map((conversation) => ({
+            id: `conversation:${conversation.id}`,
+            type: 'conversation' as const,
+            title: conversation.title,
+            cliId: conversation.cliId,
+            projectPath: conversation.projectPath,
+            conversation
+          })),
+        ...terminalItems.filter((item) => item.projectPath || !hasProjectTerminal)
+      ];
+    },
     [conversationStore.conversations, tabs]
   );
   const resolvedLanguage = resolveLanguage(settings.language);

@@ -1996,11 +1996,75 @@ kbd {
   text-align: right;
 }
 
-.agent-message-bubble p {
-  margin: 0;
+.agent-message-markdown {
+  min-width: 0;
+  color: inherit;
   font-size: 13px;
   line-height: 1.58;
+  word-break: break-word;
+}
+
+.agent-message-markdown p {
+  margin: 0;
   white-space: pre-wrap;
+}
+
+.agent-message-markdown p + p,
+.agent-message-markdown p + ul,
+.agent-message-markdown p + pre,
+.agent-message-markdown ul + p,
+.agent-message-markdown ul + pre,
+.agent-message-markdown pre + p,
+.agent-message-markdown pre + ul {
+  margin-top: 8px;
+}
+
+.agent-message-markdown ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.agent-message-markdown li {
+  margin: 3px 0;
+}
+
+.agent-message-markdown code {
+  padding: 1px 4px;
+  color: #1f3349;
+  background: rgba(79, 96, 116, 0.1);
+  border-radius: 4px;
+  font-family: 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.agent-message-markdown pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 9px;
+  overflow-x: auto;
+  color: #22303f;
+  background: #f6f8fa;
+  border: 1px solid rgba(68, 76, 86, 0.12);
+  border-radius: 7px;
+}
+
+.agent-message-markdown pre span {
+  display: block;
+  margin-bottom: 5px;
+  color: #7a8490;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-message-markdown pre code {
+  display: block;
+  padding: 0;
+  overflow: visible;
+  color: inherit;
+  background: transparent;
+  border-radius: 0;
+  white-space: pre;
   word-break: break-word;
 }
 
