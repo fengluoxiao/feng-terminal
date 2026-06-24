@@ -10,6 +10,7 @@ interface TerminalPaneProps {
   profileId: CliId;
   fontSize: number;
   active: boolean;
+  autoStart?: boolean;
   cwd?: string;
   extraArgs?: string[];
   sessionKey?: string;
@@ -26,6 +27,7 @@ export function TerminalPane({
   profileId,
   fontSize,
   active,
+  autoStart = false,
   cwd,
   extraArgs,
   sessionKey,
@@ -37,12 +39,14 @@ export function TerminalPane({
   const sessionIdRef = useRef<string | null>(null);
   const activeRef = useRef(active);
   const labelsRef = useRef(labels);
+  const [activated, setActivated] = useState(active || autoStart);
   const [status, setStatus] = useState<'booting' | 'ready' | 'closed'>('booting');
   const [sessionLabel, setSessionLabel] = useState(labels.starting);
 
   useEffect(() => {
     activeRef.current = active;
-  }, [active]);
+    if (active || autoStart) setActivated(true);
+  }, [active, autoStart]);
 
   useEffect(() => {
     labelsRef.current = labels;
@@ -50,6 +54,7 @@ export function TerminalPane({
   }, [labels, status]);
 
   useEffect(() => {
+    if (!activated) return undefined;
     const host = hostRef.current;
     if (!host) return;
 
@@ -168,7 +173,7 @@ export function TerminalPane({
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [cwd, extraArgs, fontSize, profileId, sessionKey]);
+  }, [activated, cwd, extraArgs, fontSize, profileId, sessionKey]);
 
   useEffect(() => {
     if (!active) return;

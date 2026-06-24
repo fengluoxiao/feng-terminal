@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ClipboardEvent, ReactNode } from 'react';
-import { Bot, CheckCircle2, Image, Link2, LoaderCircle, RotateCcw, SendHorizonal, X } from 'lucide-react';
-import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
+import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
+import { Bot, CheckCircle2, ChevronLeft, CircleAlert, CircleCheck, File, Folder, Image, Link2, LoaderCircle, Play, RotateCcw, SendHorizonal, TerminalSquare, X } from 'lucide-react';
+import type { ConversationFileReference, ConversationRecord, ConversationReference, ConversationStore } from '../../shared/conversation';
 import type { CliId } from '../../shared/terminal';
-import type { AgentContextReferenceInput, AgentImageAttachmentInput, AgentSkill } from '../../shared/agent';
+import type {
+  AgentContextReferenceInput,
+  AgentContextSnippet,
+  AgentContextSnippetInput,
+  AgentFileReferenceInput,
+  AgentImageAttachmentInput,
+  AgentProjectEntry,
+  AgentSkill
+} from '../../shared/agent';
 import { getCliSkills } from '../../shared/skills';
 
 interface ImagePreviewState {
@@ -15,6 +23,14 @@ type MarkdownBlock =
   | { type: 'paragraph'; text: string }
   | { type: 'code'; text: string; language?: string }
   | { type: 'list'; items: string[] };
+
+interface TerminalPreview {
+  status: 'queued' | 'sent' | 'running' | 'warning' | 'failed' | 'completed' | 'skipped';
+  target: string;
+  cwd: string;
+  command: string;
+  output?: string;
+}
 
 export interface AgentContextSource {
   id: string;
@@ -63,6 +79,61 @@ function getContextSourceSearchScore(source: AgentContextSource, query: string):
   if (project.includes(query)) return 420;
   if (id.includes(query)) return 260;
   return 0;
+}
+
+function getTrailingTrigger(value: string, symbols: string[]): { symbol: string; query: string; start: number; nested: boolean } | null {
+  const lineStart = Math.max(value.lastIndexOf('\n') + 1, 0);
+  const tail = value.slice(lineStart);
+  const match = /(?:^|\s|->)([@#])([^\s@#\\]*)$/u.exec(tail);
+  if (!match || !symbols.includes(match[1])) return null;
+  const prefix = match[0].slice(0, match[0].lastIndexOf(match[1]));
+  return {
+    symbol: match[1],
+    query: match[2].trim().toLowerCase(),
+    start: lineStart + match.index + match[0].lastIndexOf(match[1]),
+    nested: prefix.endsWith('->')
+  };
+}
+
+function replaceTrailingTrigger(value: string, trigger: { start: number } | null, label: string): string {
+  if (!trigger) return `${value}${label}`;
+  const before = value.slice(0, trigger.start).replace(/->$/u, '').trimEnd();
+  const after = value.slice(trigger.start).replace(/^[@#][^\s@#\\]*/u, '');
+  const separator = before && !/\s$/u.test(before) ? ' ' : '';
+  const suffix = after ? (!/^\s/u.test(after) ? ' ' : '') : ' ';
+  return `${before}${separator}${label}${suffix}${after}`;
+}
+
+function getPathSegments(path: string | undefined): string[] {
+  return path?.split(/[\\/]/u).filter(Boolean) ?? [];
+}
+
+function normalizeLocalPath(path: string | undefined): string {
+  return (path ?? '').replace(/[\\/]+$/u, '').toLowerCase();
+}
+
+function isSamePath(left: string | undefined, right: string | undefined): boolean {
+  return normalizeLocalPath(left) === normalizeLocalPath(right);
+}
+
+function getParentPath(path: string | undefined, root: string | undefined): string | undefined {
+  if (!path) return undefined;
+  if (!root || isSamePath(path, root)) return undefined;
+  const normalized = path.replace(/[\\/]+$/u, '');
+  const index = Math.max(normalized.lastIndexOf('\\'), normalized.lastIndexOf('/'));
+  if (index <= 0) return undefined;
+  const parent = normalized.slice(0, index);
+  if (isSamePath(parent, root)) return undefined;
+  return parent;
+}
+
+function getBreadcrumbLabel(root: string | undefined, current: string | undefined): string {
+  const rootName = getPathSegments(root).at(-1) ?? 'Project';
+  if (!current || isSamePath(current, root)) return rootName;
+  const rootSegments = getPathSegments(root);
+  const currentSegments = getPathSegments(current);
+  const relative = currentSegments.slice(rootSegments.length);
+  return [rootName, ...relative].filter(Boolean).join(' / ');
 }
 
 function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
@@ -145,6 +216,383 @@ function renderInlineMarkdown(text: string): ReactNode[] {
   return nodes;
 }
 
+function parseTerminalPreview(text: string): TerminalPreview | null {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const fields: Record<string, string> = {};
+  let multilineKey: string | null = null;
+
+  for (const line of lines) {
+    const multilineMatch = /^([a-z]+):\s*\|\s*$/iu.exec(line);
+    if (multilineMatch) {
+      multilineKey = multilineMatch[1].toLowerCase();
+      fields[multilineKey] = '';
+      continue;
+    }
+
+    const fieldMatch = /^([a-z]+):\s*(.*)$/iu.exec(line);
+    if (fieldMatch && !line.startsWith('  ')) {
+      multilineKey = null;
+      fields[fieldMatch[1].toLowerCase()] = fieldMatch[2].trim();
+      continue;
+    }
+
+    if (multilineKey) {
+      const value = line.startsWith('  ') ? line.slice(2) : line;
+      fields[multilineKey] = fields[multilineKey] ? `${fields[multilineKey]}\n${value}` : value;
+    }
+  }
+
+  const status = fields.status as TerminalPreview['status'];
+  if (!['queued', 'sent', 'running', 'warning', 'failed', 'completed', 'skipped'].includes(status)) return null;
+  if (!fields.command) return null;
+
+  return {
+    status,
+    target: fields.target || 'Terminal',
+    cwd: fields.cwd || '',
+    command: fields.command,
+    output: fields.output
+  };
+}
+
+function getTerminalPreviewLabel(status: TerminalPreview['status']): string {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'skipped') return 'skipped';
+  if (status === 'warning') return 'warning';
+  if (status === 'running') return 'running';
+  if (status === 'sent') return 'sent';
+  return 'queued';
+}
+
+function TerminalPreviewCard({ preview }: { preview: TerminalPreview }): ReactNode {
+  const isFailed = preview.status === 'failed' || preview.status === 'skipped';
+  const isDone = preview.status === 'completed';
+  const Icon = isFailed ? CircleAlert : isDone ? CircleCheck : preview.status === 'running' ? LoaderCircle : Play;
+
+  return (
+    <section className={`terminal-preview-card ${preview.status}`}>
+      <header>
+        <span className="terminal-preview-icon">
+          <Icon size={14} />
+        </span>
+        <strong>{preview.target}</strong>
+        <em>{getTerminalPreviewLabel(preview.status)}</em>
+      </header>
+      {preview.cwd ? (
+        <div className="terminal-preview-row">
+          <span>cwd</span>
+          <code>{preview.cwd}</code>
+        </div>
+      ) : null}
+      <div className="terminal-preview-row">
+        <span>cmd</span>
+        <pre>{preview.command}</pre>
+      </div>
+      {preview.output ? (
+        <details className="terminal-preview-output" open={isFailed}>
+          <summary>output</summary>
+          <pre>{preview.output}</pre>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function renderPromptHighlight(
+  text: string,
+  files: AgentProjectEntry[],
+  sources: AgentContextSource[],
+  snippets: AgentContextSnippet[]
+): ReactNode[] {
+  const labels = [
+    ...files.map((item) => ({ label: `@${item.name}`, className: 'file' })),
+    ...sources.map((item) => ({ label: `#${item.title}`, className: 'context' })),
+    ...snippets.map((item) => ({ label: `#${item.title}`, className: 'context' }))
+  ]
+    .filter((item) => item.label.length > 1)
+    .sort((left, right) => right.label.length - left.label.length);
+  const nodes: ReactNode[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const match = labels
+      .map((item) => ({ ...item, index: text.indexOf(item.label, index) }))
+      .filter((item) => item.index >= 0)
+      .sort((left, right) => left.index - right.index || right.label.length - left.label.length)[0];
+
+    if (!match) {
+      nodes.push(text.slice(index));
+      break;
+    }
+
+    if (match.index > index) nodes.push(text.slice(index, match.index));
+    nodes.push(
+      <span className={`agent-message-reference-text ${match.className}`} key={`${match.label}-${match.index}`}>
+        {match.label}
+      </span>
+    );
+    index = match.index + match.label.length;
+  }
+
+  return nodes.length ? nodes : [''];
+}
+
+function renderPromptEditorContent(
+  text: string,
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let index = 0;
+  const ordered = labels.sort((left, right) => right.label.length - left.label.length);
+
+  while (index < text.length) {
+    const match = ordered
+      .map((item) => ({ ...item, index: text.indexOf(item.label, index) }))
+      .filter((item) => item.index >= 0)
+      .sort((left, right) => left.index - right.index || right.label.length - left.label.length)[0];
+
+    if (!match) {
+      nodes.push(text.slice(index));
+      break;
+    }
+
+    if (match.index > index) nodes.push(text.slice(index, match.index));
+    nodes.push(
+      <button
+        className={`agent-reference-token ${match.kind === 'file' ? 'file' : 'context'}`}
+        contentEditable={false}
+        data-reference-id={match.id}
+        data-reference-kind={match.kind}
+        data-reference-label={match.label}
+        key={`${match.id}-${match.index}`}
+        onMouseDown={(event) => event.preventDefault()}
+        type="button"
+      >
+        {match.label}
+      </button>
+    );
+    index = match.index + match.label.length;
+  }
+
+  return nodes.length ? nodes : [''];
+}
+
+function renderPromptEditorDom(
+  editor: HTMLDivElement | null,
+  text: string,
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): void {
+  if (!editor) return;
+  editor.replaceChildren();
+  const ordered = [...labels].sort((left, right) => right.label.length - left.label.length);
+  let index = 0;
+
+  while (index < text.length) {
+    const match = ordered
+      .map((item) => ({ ...item, index: text.indexOf(item.label, index) }))
+      .filter((item) => item.index >= 0)
+      .sort((left, right) => left.index - right.index || right.label.length - left.label.length)[0];
+
+    if (!match) {
+      editor.append(document.createTextNode(text.slice(index)));
+      break;
+    }
+
+    if (match.index > index) editor.append(document.createTextNode(text.slice(index, match.index)));
+    const button = document.createElement('button');
+    button.className = `agent-reference-token ${match.kind === 'file' ? 'file' : 'context'}`;
+    button.contentEditable = 'false';
+    button.dataset.referenceId = match.id;
+    button.dataset.referenceKind = match.kind;
+    button.dataset.referenceLabel = match.label;
+    button.type = 'button';
+    button.textContent = match.label;
+    button.addEventListener('mousedown', (event) => event.preventDefault());
+    editor.append(button);
+    index = match.index + match.label.length;
+  }
+}
+
+function renderMessageReferenceHighlights(
+  text: string,
+  fileReferences?: ConversationFileReference[],
+  references?: ConversationReference[]
+): ReactNode[] {
+  const labels = [
+    ...(fileReferences ?? []).map((item) => ({ label: `@${item.name}`, className: 'file' })),
+    ...(references ?? []).map((item) => ({ label: `#${item.title}`, className: 'context' }))
+  ]
+    .filter((item) => item.label.length > 1)
+    .sort((left, right) => right.label.length - left.label.length);
+  const nodes: ReactNode[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const match = labels
+      .map((item) => ({ ...item, index: text.indexOf(item.label, index) }))
+      .filter((item) => item.index >= 0)
+      .sort((left, right) => left.index - right.index || right.label.length - left.label.length)[0];
+
+    if (!match) {
+      nodes.push(text.slice(index));
+      break;
+    }
+
+    if (match.index > index) nodes.push(text.slice(index, match.index));
+    nodes.push(
+      <span className={`agent-highlight-reference ${match.className}`} key={`${match.label}-${match.index}`}>
+        {match.label}
+      </span>
+    );
+    index = match.index + match.label.length;
+  }
+
+  return nodes.length ? nodes : [text];
+}
+
+function getPromptReferenceLabels(
+  files: AgentProjectEntry[],
+  sources: AgentContextSource[],
+  snippets: AgentContextSnippet[]
+): Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }> {
+  return [
+    ...files.map((item) => ({ label: `@${item.name}`, id: item.id, kind: 'file' as const })),
+    ...sources.map((item) => ({ label: `#${item.title}`, id: item.id, kind: 'context' as const })),
+    ...snippets.map((item) => ({ label: `#${item.title}`, id: item.id, kind: 'snippet' as const }))
+  ].sort((left, right) => right.label.length - left.label.length);
+}
+
+function getPlainTextFromEditor(element: HTMLElement): string {
+  let text = '';
+  element.childNodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent ?? '';
+      return;
+    }
+
+    if (node instanceof HTMLElement) {
+      text += node.dataset.referenceLabel ?? node.textContent ?? '';
+    }
+  });
+  return text.replace(/\u00a0/gu, ' ');
+}
+
+function getCaretOffsetWithin(element: HTMLElement): number {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return 0;
+  const range = selection.getRangeAt(0);
+  const before = range.cloneRange();
+  before.selectNodeContents(element);
+  before.setEnd(range.endContainer, range.endOffset);
+  return before.toString().replace(/\u00a0/gu, ' ').length;
+}
+
+function setCaretOffsetWithin(element: HTMLElement, offset: number): void {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, offset);
+  let node = walker.nextNode();
+  while (node) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
+    remaining -= length;
+    node = walker.nextNode();
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+function focusEditorAtEnd(editor: HTMLDivElement | null): void {
+  if (!editor) return;
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      editor.focus();
+      setCaretOffsetWithin(editor, getPlainTextFromEditor(editor).length);
+    });
+  });
+}
+
+function updateEditorPrompt(
+  editor: HTMLDivElement | null,
+  text: string,
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): void {
+  renderPromptEditorDom(editor, text, labels);
+  window.requestAnimationFrame(() => focusEditorAtEnd(editor));
+}
+
+function findReferenceTokenAtCursor(
+  text: string,
+  cursor: number,
+  key: 'Backspace' | 'Delete',
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): { start: number; end: number; id: string; kind: 'file' | 'context' | 'snippet' } | null {
+  for (const item of labels) {
+    let start = text.indexOf(item.label);
+    while (start >= 0) {
+      const end = start + item.label.length;
+      const inside =
+        key === 'Backspace'
+          ? cursor > start && cursor <= end
+          : cursor >= start && cursor < end;
+      if (inside) return { start, end, id: item.id, kind: item.kind };
+      start = text.indexOf(item.label, start + item.label.length);
+    }
+  }
+  return null;
+}
+
+function findReferenceTokenBoundary(
+  text: string,
+  cursor: number,
+  direction: 'left' | 'right',
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): number | null {
+  for (const item of labels) {
+    let start = text.indexOf(item.label);
+    while (start >= 0) {
+      const end = start + item.label.length;
+      const enteringFromRight = direction === 'left' && cursor > start && cursor <= end;
+      const enteringFromLeft = direction === 'right' && cursor >= start && cursor < end;
+      if (enteringFromRight) return start;
+      if (enteringFromLeft) return end;
+      start = text.indexOf(item.label, start + item.label.length);
+    }
+  }
+  return null;
+}
+
+function getNearestReferenceTokenBoundary(
+  text: string,
+  cursor: number,
+  labels: Array<{ label: string; id: string; kind: 'file' | 'context' | 'snippet' }>
+): number | null {
+  for (const item of labels) {
+    let start = text.indexOf(item.label);
+    while (start >= 0) {
+      const end = start + item.label.length;
+      if (cursor > start && cursor < end) {
+        return cursor - start <= end - cursor ? start : end;
+      }
+      start = text.indexOf(item.label, start + item.label.length);
+    }
+  }
+  return null;
+}
+
 function MarkdownMessage({ content, className }: { content: string; className?: string }): ReactNode {
   const blocks = parseMarkdownBlocks(content);
   if (!blocks.length) return <p className={className} />;
@@ -153,6 +601,11 @@ function MarkdownMessage({ content, className }: { content: string; className?: 
     <div className={className ? `agent-message-markdown ${className}` : 'agent-message-markdown'}>
       {blocks.map((block, index) => {
         if (block.type === 'code') {
+          const terminalPreview = block.language === 'terminal-preview' ? parseTerminalPreview(block.text) : null;
+          if (terminalPreview) {
+            return <TerminalPreviewCard key={index} preview={terminalPreview} />;
+          }
+
           return (
             <pre key={index}>
               {block.language ? <span>{block.language}</span> : null}
@@ -173,6 +626,22 @@ function MarkdownMessage({ content, className }: { content: string; className?: 
 
         return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
       })}
+    </div>
+  );
+}
+
+function UserMessageContent({
+  content,
+  fileReferences,
+  references
+}: {
+  content: string;
+  fileReferences?: ConversationFileReference[];
+  references?: ConversationReference[];
+}): ReactNode {
+  return (
+    <div className="agent-message-markdown">
+      <p>{renderMessageReferenceHighlights(content, fileReferences, references)}</p>
     </div>
   );
 }
@@ -210,11 +679,19 @@ export function AgentPane({
   const [attachments, setAttachments] = useState<AgentImageAttachmentInput[]>([]);
   const [previewImage, setPreviewImage] = useState<ImagePreviewState | null>(null);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const [selectedSnippetIndex, setSelectedSnippetIndex] = useState(0);
+  const [projectEntries, setProjectEntries] = useState<AgentProjectEntry[]>([]);
+  const [fileBrowsePath, setFileBrowsePath] = useState<string | undefined>();
+  const [contextSnippets, setContextSnippets] = useState<AgentContextSnippet[]>([]);
+  const [referencedSnippets, setReferencedSnippets] = useState<AgentContextSnippet[]>([]);
+  const [referencedFiles, setReferencedFiles] = useState<AgentProjectEntry[]>([]);
   const [referencedContextIds, setReferencedContextIds] = useState<string[]>([]);
   const [codexSkills, setCodexSkills] = useState<AgentSkill[] | null>(null);
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
   const conversation = useMemo<ConversationRecord | undefined>(
     () => conversationStore.conversations.find((item) => item.id === conversationId),
     [conversationId, conversationStore.conversations]
@@ -239,7 +716,12 @@ export function AgentPane({
     [skillQuery, skills]
   );
   const showSkillMenu = matchingSkills.length > 0;
-  const referenceQuery = prompt.startsWith('@') && !prompt.includes('\n') ? prompt.slice(1).trim().toLowerCase() : null;
+  const trailingTrigger = useMemo(() => getTrailingTrigger(prompt, ['@', '#']), [prompt]);
+  const fileQuery = trailingTrigger?.symbol === '@' ? trailingTrigger.query : null;
+  const nestedFileSource = trailingTrigger?.symbol === '@' && trailingTrigger.nested ? referencedFiles.filter((item) => item.type === 'directory').at(-1) : undefined;
+  const browsingFiles = fileQuery !== null && fileQuery.length === 0;
+  const contextQuery = trailingTrigger?.symbol === '#' && !trailingTrigger.nested ? trailingTrigger.query : null;
+  const snippetQuery = trailingTrigger?.symbol === '#' && trailingTrigger.nested ? trailingTrigger.query : null;
   const referencedSources = useMemo(
     () =>
       referencedContextIds
@@ -247,11 +729,25 @@ export function AgentPane({
         .filter((item): item is AgentContextSource => Boolean(item)),
     [contextSources, referencedContextIds]
   );
+  const referenceLabels = useMemo(
+    () => getPromptReferenceLabels(referencedFiles, referencedSources, referencedSnippets),
+    [referencedFiles, referencedSnippets, referencedSources]
+  );
+  const matchingFiles = useMemo(() => {
+    if (fileQuery === null) return [];
+    return projectEntries.slice(0, 80);
+  }, [fileQuery, projectEntries]);
+  const showFileMenu = matchingFiles.length > 0;
+  const matchingSnippets = useMemo(() => {
+    if (snippetQuery === null) return [];
+    return contextSnippets.slice(0, 80);
+  }, [contextSnippets, snippetQuery]);
+  const showSnippetMenu = matchingSnippets.length > 0;
   const matchingSources = useMemo(() => {
-    if (referenceQuery === null) return [];
+    if (contextQuery === null) return [];
     return contextSources
       .filter((item) => item.conversation?.id !== conversationId && !referencedContextIds.includes(item.id))
-      .map((item) => ({ source: item, score: getContextSourceSearchScore(item, referenceQuery) }))
+      .map((item) => ({ source: item, score: getContextSourceSearchScore(item, contextQuery) }))
       .filter((item) => item.score > 0)
       .sort(
         (left, right) =>
@@ -261,7 +757,7 @@ export function AgentPane({
       )
       .map((item) => item.source)
       .slice(0, 80);
-  }, [contextSources, conversationId, referenceQuery, referencedContextIds]);
+  }, [contextSources, conversationId, contextQuery, referencedContextIds]);
   const showReferenceMenu = matchingSources.length > 0;
 
   useEffect(() => {
@@ -269,8 +765,75 @@ export function AgentPane({
   }, [skillQuery, profileId]);
 
   useEffect(() => {
+    setSelectedFileIndex(0);
+  }, [fileQuery, conversationId]);
+
+  useEffect(() => {
+    if (fileQuery === null) return;
+    setFileBrowsePath(nestedFileSource?.path);
+  }, [conversationId, fileQuery === null, nestedFileSource?.path]);
+
+  useEffect(() => {
     setSelectedReferenceIndex(0);
-  }, [referenceQuery, conversationId]);
+  }, [contextQuery, conversationId]);
+
+  useEffect(() => {
+    setSelectedSnippetIndex(0);
+  }, [snippetQuery, conversationId]);
+
+  useEffect(() => {
+    if (fileQuery === null || !conversation?.projectPath) return;
+    let cancelled = false;
+    void window.agentApi
+      .listProjectEntries(conversation.projectPath, fileQuery, browsingFiles ? fileBrowsePath : undefined)
+      .then((items) => {
+        if (!cancelled) setProjectEntries(items);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        if (!cancelled) setProjectEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [browsingFiles, conversation?.projectPath, fileBrowsePath, fileQuery]);
+
+  useEffect(() => {
+    if (snippetQuery === null) return;
+    const source = referencedSources.at(-1);
+    if (!source) {
+      setContextSnippets([]);
+      return;
+    }
+    const request =
+      source.type === 'conversation'
+        ? source.conversation
+          ? ({ type: 'conversation', id: source.conversation.id } satisfies AgentContextReferenceInput)
+          : null
+        : source.sessionKey
+          ? ({
+              type: 'terminal',
+              id: source.sessionKey,
+              title: source.title,
+              projectPath: source.projectPath,
+              sessionKey: source.sessionKey
+            } satisfies AgentContextReferenceInput)
+          : null;
+    if (!request) return;
+    let cancelled = false;
+    void window.agentApi
+      .listContextSnippets(request, snippetQuery)
+      .then((items) => {
+        if (!cancelled) setContextSnippets(items);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        if (!cancelled) setContextSnippets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [referencedSources, snippetQuery]);
 
   useEffect(() => {
     if (profileId !== 'codex' || codexSkills) return;
@@ -294,10 +857,42 @@ export function AgentPane({
     return () => window.cancelAnimationFrame(frame);
   }, [active, conversationId, messages.length, messages.at(-1)?.content, messages.at(-1)?.status]);
 
+  useEffect(() => {
+    const text = ` ${prompt} `;
+    setReferencedFiles((current) => current.filter((item) => text.includes(`@${item.name}`)));
+    setReferencedContextIds((current) =>
+      current.filter((id) => {
+        const source = contextSources.find((item) => item.id === id);
+        return source ? text.includes(`#${source.title}`) : false;
+      })
+    );
+    setReferencedSnippets((current) => current.filter((item) => text.includes(`#${item.title}`)));
+  }, [contextSources, prompt]);
+
   function sendText(value: string, nextAttachments = attachments): void {
     const nextPrompt = value.trim();
     const attachmentSnapshot = nextAttachments.slice();
+    const promptReferenceText = ` ${nextPrompt} `;
+    const fileSnapshot = referencedFiles
+      .filter((item) => promptReferenceText.includes(`@${item.name}`))
+      .map<AgentFileReferenceInput>((item) => ({
+        id: item.id,
+        type: item.type,
+        name: item.name,
+        path: item.path,
+        relativePath: item.relativePath
+      }));
+    const snippetSnapshot = referencedSnippets
+      .filter((item) => promptReferenceText.includes(`#${item.title}`))
+      .map<AgentContextSnippetInput>((item) => ({
+        id: item.id,
+        sourceId: item.sourceId,
+        sourceTitle: item.sourceTitle,
+        title: item.title,
+        body: item.body
+      }));
     const referenceSnapshot = referencedSources
+      .filter((item) => promptReferenceText.includes(`#${item.title}`))
       .map<AgentContextReferenceInput | null>((item) =>
         item.type === 'conversation'
           ? item.conversation
@@ -317,7 +912,10 @@ export function AgentPane({
     if (!conversation || (!nextPrompt && attachmentSnapshot.length === 0) || sending) return;
 
     setPrompt('');
+    editorRef.current?.replaceChildren();
     setAttachments([]);
+    setReferencedFiles([]);
+    setReferencedSnippets([]);
     setReferencedContextIds([]);
     setSending(true);
     void window.agentApi
@@ -325,6 +923,8 @@ export function AgentPane({
         conversationId: conversation.id,
         prompt: nextPrompt || 'Describe this image.',
         attachments: attachmentSnapshot,
+        fileReferences: fileSnapshot,
+        contextSnippets: snippetSnapshot,
         contextReferences: referenceSnapshot
       })
       .then((result) => {
@@ -343,21 +943,72 @@ export function AgentPane({
   }
 
   function insertSkill(skill: AgentSkill): void {
-    setPrompt((current) => {
-      const nextText = current.startsWith('/') && !current.includes('\n') ? '' : current;
-      return `${skill.prompt}${nextText}`.trimStart();
-    });
+    const current = getPlainTextFromEditor(editorRef.current ?? document.createElement('div')) || prompt;
+    const nextText = current.startsWith('/') && !current.includes('\n') ? '' : current;
+    const nextPrompt = `${skill.prompt}${nextText}`.trimStart();
+    setPrompt(nextPrompt);
+    updateEditorPrompt(editorRef.current, nextPrompt, referenceLabels);
     setSelectedSkillIndex(0);
   }
 
   function insertContextReference(item: AgentContextSource): void {
     setReferencedContextIds((current) => (current.includes(item.id) ? current : [...current, item.id].slice(0, 8)));
-    setPrompt((current) => (current.startsWith('@') && !current.includes('\n') ? '' : current));
+    const nextPrompt = replaceTrailingTrigger(prompt, trailingTrigger, `#${item.title}`);
+    setPrompt(nextPrompt);
+    updateEditorPrompt(editorRef.current, nextPrompt, [
+      ...referenceLabels,
+      { label: `#${item.title}`, id: item.id, kind: 'context' }
+    ]);
     setSelectedReferenceIndex(0);
   }
 
-  function removeContextReference(id: string): void {
-    setReferencedContextIds((current) => current.filter((item) => item !== id));
+  function insertFileReference(item: AgentProjectEntry, forceSelect = false): void {
+    if (browsingFiles && item.type === 'directory' && !forceSelect) {
+      setFileBrowsePath(item.path);
+      setSelectedFileIndex(0);
+      return;
+    }
+
+    setReferencedFiles((current) => (current.some((entry) => entry.id === item.id) ? current : [...current, item].slice(0, 10)));
+    const nextPrompt = replaceTrailingTrigger(prompt, trailingTrigger, `@${item.name}`);
+    setPrompt(nextPrompt);
+    updateEditorPrompt(editorRef.current, nextPrompt, [
+      ...referenceLabels,
+      { label: `@${item.name}`, id: item.id, kind: 'file' }
+    ]);
+    setSelectedFileIndex(0);
+  }
+
+  function insertCurrentFolderReference(): void {
+    if (!conversation?.projectPath) return;
+    const currentPath = fileBrowsePath ?? conversation.projectPath;
+    const name = getPathSegments(currentPath).at(-1) ?? currentPath;
+    const item: AgentProjectEntry = {
+      id: `directory:${currentPath}`,
+      type: 'directory',
+      name,
+      path: currentPath,
+      relativePath: fileBrowsePath ? getPathSegments(currentPath).slice(-1)[0] ?? name : name
+    };
+    setReferencedFiles((current) => (current.some((entry) => entry.id === item.id) ? current : [...current, item].slice(0, 10)));
+    const nextPrompt = replaceTrailingTrigger(prompt, trailingTrigger, `@${item.name}`);
+    setPrompt(nextPrompt);
+    updateEditorPrompt(editorRef.current, nextPrompt, [
+      ...referenceLabels,
+      { label: `@${item.name}`, id: item.id, kind: 'file' }
+    ]);
+    setSelectedFileIndex(0);
+  }
+
+  function insertContextSnippet(item: AgentContextSnippet): void {
+    setReferencedSnippets((current) => (current.some((entry) => entry.id === item.id) ? current : [...current, item].slice(0, 12)));
+    const nextPrompt = replaceTrailingTrigger(prompt, trailingTrigger, `#${item.title}`);
+    setPrompt(nextPrompt);
+    updateEditorPrompt(editorRef.current, nextPrompt, [
+      ...referenceLabels,
+      { label: `#${item.title}`, id: item.id, kind: 'snippet' }
+    ]);
+    setSelectedSnippetIndex(0);
   }
 
   function retryBefore(index: number): void {
@@ -421,7 +1072,7 @@ export function AgentPane({
       });
   }
 
-  function pasteImages(event: ClipboardEvent<HTMLTextAreaElement>): void {
+  function pasteImages(event: ClipboardEvent<HTMLElement>): void {
     const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
     const imageItems = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
@@ -439,6 +1090,112 @@ export function AgentPane({
 
   function removeAttachment(id: string): void {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  }
+
+  function snapCursorOutOfReference(target: HTMLTextAreaElement): void {
+    if (target.selectionStart !== target.selectionEnd) return;
+    const nextCursor = getNearestReferenceTokenBoundary(
+      prompt,
+      target.selectionStart,
+      getPromptReferenceLabels(referencedFiles, referencedSources, referencedSnippets)
+    );
+    if (nextCursor !== null) target.setSelectionRange(nextCursor, nextCursor);
+  }
+
+  function handleEditorKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    const clearEditorPrompt = (): void => {
+      setPrompt('');
+      editorRef.current?.replaceChildren();
+    };
+
+    if (showSkillMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setSelectedSkillIndex((current) => {
+        const offset = event.key === 'ArrowDown' ? 1 : -1;
+        return (current + offset + matchingSkills.length) % matchingSkills.length;
+      });
+      return;
+    }
+
+    if (showSkillMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+      event.preventDefault();
+      insertSkill(matchingSkills[selectedSkillIndex] ?? matchingSkills[0]);
+      return;
+    }
+
+    if (showSkillMenu && event.key === 'Escape') {
+      event.preventDefault();
+      clearEditorPrompt();
+      return;
+    }
+
+    if (showFileMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setSelectedFileIndex((current) => {
+        const offset = event.key === 'ArrowDown' ? 1 : -1;
+        return (current + offset + matchingFiles.length) % matchingFiles.length;
+      });
+      return;
+    }
+
+    if (showFileMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+      event.preventDefault();
+      insertFileReference(matchingFiles[selectedFileIndex] ?? matchingFiles[0]);
+      return;
+    }
+
+    if (showFileMenu && event.key === 'Escape') {
+      event.preventDefault();
+      clearEditorPrompt();
+      return;
+    }
+
+    if (showSnippetMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setSelectedSnippetIndex((current) => {
+        const offset = event.key === 'ArrowDown' ? 1 : -1;
+        return (current + offset + matchingSnippets.length) % matchingSnippets.length;
+      });
+      return;
+    }
+
+    if (showSnippetMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+      event.preventDefault();
+      insertContextSnippet(matchingSnippets[selectedSnippetIndex] ?? matchingSnippets[0]);
+      return;
+    }
+
+    if (showSnippetMenu && event.key === 'Escape') {
+      event.preventDefault();
+      clearEditorPrompt();
+      return;
+    }
+
+    if (showReferenceMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setSelectedReferenceIndex((current) => {
+        const offset = event.key === 'ArrowDown' ? 1 : -1;
+        return (current + offset + matchingSources.length) % matchingSources.length;
+      });
+      return;
+    }
+
+    if (showReferenceMenu && (event.key === 'Enter' || event.key === 'Tab')) {
+      event.preventDefault();
+      insertContextReference(matchingSources[selectedReferenceIndex] ?? matchingSources[0]);
+      return;
+    }
+
+    if (showReferenceMenu && event.key === 'Escape') {
+      event.preventDefault();
+      clearEditorPrompt();
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendPrompt();
+    }
   }
 
   return (
@@ -465,16 +1222,24 @@ export function AgentPane({
               <div className="agent-message-avatar">{message.role === 'user' ? '你' : <Bot size={13} />}</div>
               <div className="agent-message-bubble">
                 <span className="agent-message-author">{message.role === 'user' ? labels.user : profileName}</span>
-                <MarkdownMessage
-                  className={message.status === 'running' ? 'agent-message-running' : undefined}
-                  content={
-                    message.content === 'Interrupted.'
-                      ? labels.interrupted
-                      : message.status === 'running'
-                        ? labels.thinking
-                        : message.content
-                  }
-                />
+                {message.role === 'user' ? (
+                  <UserMessageContent
+                    content={message.content}
+                    fileReferences={message.fileReferences}
+                    references={message.references}
+                  />
+                ) : (
+                  <MarkdownMessage
+                    className={message.status === 'running' ? 'agent-message-running' : undefined}
+                    content={
+                      message.content === 'Interrupted.'
+                        ? labels.interrupted
+                        : message.status === 'running'
+                          ? labels.thinking
+                          : message.content
+                    }
+                  />
+                )}
                 {message.attachments?.length ? (
                   <div className="agent-message-attachments">
                     {message.attachments.map((attachment) => (
@@ -499,6 +1264,16 @@ export function AgentPane({
                     ))}
                   </div>
                 ) : null}
+                {message.fileReferences?.length ? (
+                  <div className="agent-message-references">
+                    {message.fileReferences.map((reference) => (
+                      <span key={reference.id}>
+                        {reference.type === 'directory' ? <Folder size={12} /> : <File size={12} />}
+                        {reference.relativePath}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {message.status === 'error' ? (
                   <button className="agent-message-action" type="button" onClick={() => retryBefore(index)}>
                     <RotateCcw size={13} />
@@ -514,7 +1289,7 @@ export function AgentPane({
             className={[
               'agent-composer',
               attachments.length ? 'has-attachments' : '',
-              referencedSources.length ? 'has-references' : ''
+              ''
             ]
               .filter(Boolean)
               .join(' ')}
@@ -546,80 +1321,26 @@ export function AgentPane({
                 ))}
               </div>
             ) : null}
-            <button className="agent-image-picker-button" type="button" onClick={chooseImage} aria-label="Choose image">
-              <Image size={14} />
-            </button>
-            <textarea
-              value={prompt}
-              placeholder={labels.inputPlaceholder}
-              onChange={(event) => {
-                setPrompt(event.target.value);
-                setSelectedSkillIndex(0);
-              }}
-              onPaste={pasteImages}
-              onKeyDown={(event) => {
-                if (showSkillMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                  event.preventDefault();
-                  setSelectedSkillIndex((current) => {
-                    const offset = event.key === 'ArrowDown' ? 1 : -1;
-                    return (current + offset + matchingSkills.length) % matchingSkills.length;
-                  });
-                  return;
-                }
-
-                if (showSkillMenu && (event.key === 'Enter' || event.key === 'Tab')) {
-                  event.preventDefault();
-                  insertSkill(matchingSkills[selectedSkillIndex] ?? matchingSkills[0]);
-                  return;
-                }
-
-                if (showSkillMenu && event.key === 'Escape') {
-                  event.preventDefault();
-                  setPrompt('');
-                  return;
-                }
-
-                if (showReferenceMenu && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                  event.preventDefault();
-                  setSelectedReferenceIndex((current) => {
-                    const offset = event.key === 'ArrowDown' ? 1 : -1;
-                    return (current + offset + matchingSources.length) % matchingSources.length;
-                  });
-                  return;
-                }
-
-                if (showReferenceMenu && (event.key === 'Enter' || event.key === 'Tab')) {
-                  event.preventDefault();
-                  insertContextReference(matchingSources[selectedReferenceIndex] ?? matchingSources[0]);
-                  return;
-                }
-
-                if (showReferenceMenu && event.key === 'Escape') {
-                  event.preventDefault();
-                  setPrompt('');
-                  return;
-                }
-
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  sendPrompt();
-                }
-              }}
-            />
-            {referencedSources.length ? (
-              <div className="agent-reference-tray">
-                {referencedSources.map((item) => (
-                  <span className="agent-reference-chip" key={item.id}>
-                    <Link2 size={12} />
-                    <b>{item.title}</b>
-                    <small>{item.projectPath?.split(/[\\/]/).filter(Boolean).pop() ?? item.cliId}</small>
-                    <button type="button" onClick={() => removeContextReference(item.id)} aria-label={`Remove ${item.title}`}>
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            <div className="agent-textarea-wrap">
+              <button className="agent-image-picker-button" type="button" onClick={chooseImage} aria-label="Choose image">
+                <Image size={14} />
+              </button>
+              <div
+                ref={editorRef}
+                className="agent-token-editor"
+                contentEditable
+                data-placeholder={labels.inputPlaceholder}
+                role="textbox"
+                spellCheck={false}
+                suppressContentEditableWarning
+                onInput={(event) => {
+                  setPrompt(getPlainTextFromEditor(event.currentTarget));
+                  setSelectedSkillIndex(0);
+                }}
+                onPaste={pasteImages}
+                onKeyDown={handleEditorKeyDown}
+              />
+            </div>
             {showSkillMenu ? (
               <div className="agent-skill-menu">
                 <div className="agent-skill-menu-meta">
@@ -644,7 +1365,7 @@ export function AgentPane({
               <div className="agent-reference-menu">
                 <div className="agent-skill-menu-meta">
                   <span>
-                    {referenceQuery ? `Search: ${referenceQuery}` : `${contextSources.length} contexts`}
+                    {contextQuery ? `Search: ${contextQuery}` : `${contextSources.length} contexts`}
                   </span>
                 </div>
                 {matchingSources.map((item, index) => (
@@ -655,9 +1376,72 @@ export function AgentPane({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => insertContextReference(item)}
                   >
-                    <span>@{item.title}</span>
+                    <span>#{item.title}</span>
                     <strong>{item.type === 'terminal' ? 'Terminal' : item.cliId}</strong>
                     <small>{item.type === 'terminal' ? `Terminal transcript - ${item.projectPath ?? ''}` : item.projectPath}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {showSnippetMenu ? (
+              <div className="agent-reference-menu agent-snippet-menu">
+                <div className="agent-skill-menu-meta">
+                  <span>{snippetQuery ? `Search in #context: ${snippetQuery}` : 'Select from #context'}</span>
+                </div>
+                {matchingSnippets.map((item, index) => (
+                  <button
+                    className={index === selectedSnippetIndex ? 'selected' : undefined}
+                    key={item.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertContextSnippet(item)}
+                  >
+                    <span>#{item.title}</span>
+                    <strong>{item.sourceTitle}</strong>
+                    <small>{item.body.replace(/\s+/gu, ' ')}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {showFileMenu ? (
+              <div className="agent-reference-menu">
+                <div className="agent-skill-menu-meta">
+                  {browsingFiles ? (
+                    <div className="agent-file-breadcrumbs">
+                      <button
+                        type="button"
+                        disabled={!fileBrowsePath}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => setFileBrowsePath(getParentPath(fileBrowsePath, conversation?.projectPath))}
+                        aria-label="Back"
+                      >
+                        <ChevronLeft size={12} />
+                      </button>
+                      <span>{getBreadcrumbLabel(conversation?.projectPath, fileBrowsePath)}</span>
+                      <button
+                        className="agent-file-use-current"
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={insertCurrentFolderReference}
+                      >
+                        Use
+                      </button>
+                    </div>
+                  ) : (
+                    <span>{`Search: ${fileQuery}`}</span>
+                  )}
+                </div>
+                {matchingFiles.map((item, index) => (
+                  <button
+                    className={index === selectedFileIndex ? 'selected' : undefined}
+                    key={item.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => insertFileReference(item, event.ctrlKey || event.metaKey)}
+                  >
+                    <span>@{item.name}</span>
+                    <strong>{item.type === 'directory' ? 'Folder' : 'File'}</strong>
+                    <small>{item.relativePath}</small>
                   </button>
                 ))}
               </div>

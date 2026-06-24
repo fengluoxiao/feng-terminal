@@ -18,7 +18,18 @@ import type {
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
-import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentSkill, AgentUpdateEvent } from '../shared/agent';
+import type {
+  AgentChooseImageResult,
+  AgentContextReferenceInput,
+  AgentContextSnippet,
+  AgentProjectEntry,
+  AgentSendRequest,
+  AgentSendResult,
+  AgentSkill,
+  AgentUpdateEvent,
+  AcpAgentSummary,
+  AcpRunSummary
+} from '../shared/agent';
 import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 declare global {
@@ -48,8 +59,9 @@ declare global {
       action: (action: string) => Promise<void>;
       agentUpdate: (store: ConversationStore) => void;
       nativeAvailable: () => Promise<boolean>;
-      listAssets: () => Promise<DesktopPetAsset[]>;
+      listAssets: (customRoot?: string) => Promise<DesktopPetAsset[]>;
       resolveAsset: (manifestPath?: string) => Promise<DesktopPetAsset | null>;
+      chooseAssetsRoot: () => Promise<string | null>;
       importAsset: () => Promise<DesktopPetImportResult>;
     };
     settingsApi: {
@@ -73,6 +85,10 @@ declare global {
       send: (request: AgentSendRequest) => Promise<AgentSendResult>;
       chooseImage: () => Promise<AgentChooseImageResult | null>;
       listSkills: () => Promise<AgentSkill[]>;
+      listProjectEntries: (projectPath: string, query?: string, directoryPath?: string) => Promise<AgentProjectEntry[]>;
+      listContextSnippets: (source: AgentContextReferenceInput, query?: string) => Promise<AgentContextSnippet[]>;
+      listAcpAgents: () => Promise<AcpAgentSummary[]>;
+      listAcpRuns: (conversationId?: string) => Promise<AcpRunSummary[]>;
       onUpdate: (callback: (event: AgentUpdateEvent) => void) => () => void;
     };
     clipboardApi: {

@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
-import { Activity, Bot, FolderGit2, History, Link2, Layers3, Plus, X } from 'lucide-react';
-import type { ConversationRecord, ConversationStore } from '../../shared/conversation';
+import { Activity, Bot, FolderGit2, Hash, History, Layers3 } from 'lucide-react';
+import type { ConversationRecord } from '../../shared/conversation';
 import type { CliId, CliProfile } from '../../shared/terminal';
 
 interface ContextPanelProps {
   conversation?: ConversationRecord;
-  conversationStore: ConversationStore;
   profile?: CliProfile;
   tabTitle: string;
   profileId: CliId;
@@ -25,10 +24,10 @@ interface ContextPanelProps {
     runs: string;
     noRuns: string;
     prompt: string;
+    referenceHint: string;
     statuses: Record<string, string>;
     modes: Record<string, string>;
   };
-  onStoreChange: (store: ConversationStore) => void;
 }
 
 function basename(path: string | undefined, fallback: string): string {
@@ -44,43 +43,16 @@ function formatDuration(value: number | undefined): string {
 
 export function ContextPanel({
   conversation,
-  conversationStore,
   profile,
   tabTitle,
   profileId,
   projectPath,
-  labels,
-  onStoreChange
+  labels
 }: ContextPanelProps): ReactNode {
   const messages = conversation?.messages ?? [];
   const runs = conversation?.runs ?? [];
   const latestRun = runs.at(-1);
   const activeProjectPath = conversation?.projectPath ?? projectPath;
-  const linkedConversations = (conversation?.linkedConversationIds ?? [])
-    .map((id) => conversationStore.conversations.find((item) => item.id === id))
-    .filter((item): item is ConversationRecord => Boolean(item));
-  const linkableConversations = conversationStore.conversations.filter(
-    (item) => item.id !== conversation?.id && !(conversation?.linkedConversationIds ?? []).includes(item.id)
-  );
-
-  function setLinkedConversationIds(ids: string[]): void {
-    if (!conversation) return;
-    void window.conversationApi
-      .update({
-        id: conversation.id,
-        linkedConversationIds: ids
-      })
-      .then(onStoreChange)
-      .catch((error: unknown) => console.error(error));
-  }
-
-  function addLinkedConversation(id: string): void {
-    setLinkedConversationIds(Array.from(new Set([...(conversation?.linkedConversationIds ?? []), id])).slice(0, 8));
-  }
-
-  function removeLinkedConversation(id: string): void {
-    setLinkedConversationIds((conversation?.linkedConversationIds ?? []).filter((item) => item !== id));
-  }
 
   return (
     <aside className="context-panel">
@@ -103,41 +75,12 @@ export function ContextPanel({
       </section>
 
       {conversation ? (
-        <section className="context-section context-links">
+        <section className="context-section context-reference-hint">
           <div className="context-section-title">
-            <Link2 size={14} />
-            <span>Linked</span>
+            <Hash size={14} />
+            <span>@ / #</span>
           </div>
-          {linkedConversations.length === 0 ? <small>No linked conversations</small> : null}
-          {linkedConversations.map((item) => (
-            <article className="context-link" key={item.id}>
-              <span>
-                <strong>{item.title}</strong>
-                <small>{basename(item.projectPath, item.projectPath)}</small>
-              </span>
-              <button type="button" onClick={() => removeLinkedConversation(item.id)} aria-label={`Unlink ${item.title}`}>
-                <X size={12} />
-              </button>
-            </article>
-          ))}
-          {linkableConversations.length ? (
-            <div className="context-link-add">
-              <Plus size={12} />
-              <select
-                value=""
-                onChange={(event) => {
-                  if (event.target.value) addLinkedConversation(event.target.value);
-                }}
-              >
-                <option value="">Link conversation</option>
-                {linkableConversations.slice(0, 80).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title} - {basename(item.projectPath, item.projectPath)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
+          <small>{labels.referenceHint}</small>
         </section>
       ) : null}
 

@@ -1,4 +1,5 @@
 import type { CliId } from './terminal';
+import type { AcpEvent, AcpRun } from './acp';
 
 export type ConversationMode = 'new' | 'resume-last' | 'resume-id' | 'fork';
 
@@ -10,6 +11,7 @@ export interface ConversationMessage {
   status?: 'running' | 'done' | 'error';
   attachments?: ConversationAttachment[];
   references?: ConversationReference[];
+  fileReferences?: ConversationFileReference[];
 }
 
 export interface ConversationAttachment {
@@ -26,9 +28,13 @@ export interface ConversationRun {
   prompt: string;
   output: string;
   status: 'running' | 'done' | 'error';
+  acpRunId?: string;
+  acp?: AcpRun;
+  acpEvents?: AcpEvent[];
   startedAt: string;
   attachments?: ConversationAttachment[];
   references?: ConversationReference[];
+  fileReferences?: ConversationFileReference[];
   finishedAt?: string;
   durationMs?: number;
   error?: string;
@@ -39,6 +45,14 @@ export interface ConversationReference {
   title: string;
   cliId: CliId;
   projectPath: string;
+}
+
+export interface ConversationFileReference {
+  id: string;
+  type: 'file' | 'directory';
+  name: string;
+  path: string;
+  relativePath: string;
 }
 
 export interface ConversationRecord {

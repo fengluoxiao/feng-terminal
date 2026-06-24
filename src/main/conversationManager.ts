@@ -10,6 +10,7 @@ import type {
   ConversationBindSessionRequest,
   ConversationAttachment,
   ConversationCreateRequest,
+  ConversationFileReference,
   ConversationMessage,
   ConversationReference,
   ConversationRecord,
@@ -81,9 +82,13 @@ function sanitizeRun(value: Partial<ConversationRun> | null | undefined): Conver
     prompt: typeof value.prompt === 'string' ? value.prompt : '',
     output: staleRunning ? 'Interrupted.' : typeof value.output === 'string' ? normalizeCodexJsonlText(value.output) : '',
     status,
+    acpRunId: typeof value.acpRunId === 'string' ? value.acpRunId : undefined,
+    acp: value.acp && typeof value.acp === 'object' ? value.acp : undefined,
+    acpEvents: Array.isArray(value.acpEvents) ? value.acpEvents : undefined,
     startedAt,
     attachments: sanitizeAttachments(value.attachments),
     references: sanitizeReferences(value.references),
+    fileReferences: sanitizeFileReferences(value.fileReferences),
     finishedAt: typeof value.finishedAt === 'string' ? value.finishedAt : staleRunning ? now : undefined,
     durationMs: typeof value.durationMs === 'number' ? value.durationMs : undefined,
     error: staleRunning ? 'Interrupted.' : typeof value.error === 'string' ? normalizeCodexJsonlText(value.error) : undefined
@@ -105,7 +110,8 @@ function sanitizeMessage(value: Partial<ConversationMessage> | null | undefined)
     createdAt,
     status,
     attachments: sanitizeAttachments(value.attachments),
-    references: sanitizeReferences(value.references)
+    references: sanitizeReferences(value.references),
+    fileReferences: sanitizeFileReferences(value.fileReferences)
   };
 }
 
@@ -172,6 +178,35 @@ function sanitizeAttachment(value: Partial<ConversationAttachment> | null | unde
     mimeType: value.mimeType,
     path: normalize(value.path),
     previewUrl: value.previewUrl
+  };
+}
+
+function sanitizeFileReferences(value: unknown): ConversationFileReference[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const references = value
+    .map((item) => sanitizeFileReference(item as Partial<ConversationFileReference> | null | undefined))
+    .filter((item): item is ConversationFileReference => Boolean(item));
+  return references.length ? references : undefined;
+}
+
+function sanitizeFileReference(value: Partial<ConversationFileReference> | null | undefined): ConversationFileReference | null {
+  if (
+    !value ||
+    typeof value.id !== 'string' ||
+    (value.type !== 'file' && value.type !== 'directory') ||
+    typeof value.name !== 'string' ||
+    typeof value.path !== 'string' ||
+    typeof value.relativePath !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    type: value.type,
+    name: value.name,
+    path: normalize(value.path),
+    relativePath: normalize(value.relativePath)
   };
 }
 

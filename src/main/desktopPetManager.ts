@@ -174,12 +174,19 @@ async function listAssetsInRoot(root: string, source: DesktopPetAsset['source'])
 }
 
 export async function listDesktopPetAssets(): Promise<DesktopPetAsset[]> {
-  const [importedAssets, codexAssets] = await Promise.all([
-    listAssetsInRoot(importedPetsRoot, 'imported'),
-    listAssetsInRoot(codexPetsRoot, 'codex')
-  ]);
+  return listDesktopPetAssetsFromRoot();
+}
+
+export async function listDesktopPetAssetsFromRoot(customRoot?: string): Promise<DesktopPetAsset[]> {
+  const roots: Array<[string, DesktopPetAsset['source']]> = [
+    [importedPetsRoot, 'imported'],
+    [codexPetsRoot, 'codex']
+  ];
+  if (customRoot) roots.unshift([resolve(customRoot), 'external']);
+
+  const assetGroups = await Promise.all(roots.map(([root, source]) => listAssetsInRoot(root, source)));
   const seen = new Set<string>();
-  return [...importedAssets, ...codexAssets].filter((asset) => {
+  return assetGroups.flat().filter((asset) => {
     if (seen.has(asset.manifestPath)) return false;
     seen.add(asset.manifestPath);
     return true;
@@ -206,8 +213,15 @@ async function importDesktopPetAsset(directory: string): Promise<DesktopPetImpor
 }
 
 export function registerDesktopPetIpc(): void {
-  ipcMain.handle('pet:list-assets', () => listDesktopPetAssets());
+  ipcMain.handle('pet:list-assets', (_event, customRoot?: string) => listDesktopPetAssetsFromRoot(customRoot));
   ipcMain.handle('pet:resolve-asset', (_event, manifestPath?: string) => resolveDesktopPetAsset(manifestPath));
+  ipcMain.handle('pet:choose-assets-root', async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose desktop pet folder',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   ipcMain.handle('pet:import-asset', async (): Promise<DesktopPetImportResult> => {
     const result = await dialog.showOpenDialog({
       title: 'Import desktop pet',

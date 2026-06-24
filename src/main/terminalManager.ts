@@ -260,6 +260,24 @@ export async function readTerminalTranscript(sessionKey: string | undefined): Pr
   }
 }
 
+export function writeTerminalInputBySessionKey(sessionKey: string | undefined, data: string): boolean {
+  const targetSessionKey = sanitizeSessionKey(sessionKey);
+  if (!targetSessionKey) return false;
+  for (const session of sessions.values()) {
+    if (session.sessionKey === targetSessionKey) {
+      session.pty.write(data);
+      return true;
+    }
+  }
+  return false;
+}
+
+export function listLiveTerminalSessionKeys(): string[] {
+  return Array.from(sessions.values())
+    .map((session) => session.sessionKey)
+    .filter((sessionKey): sessionKey is string => Boolean(sessionKey));
+}
+
 async function appendTranscript(sessionKey: string | undefined, data: string): Promise<void> {
   if (!sessionKey) return;
   const transcriptPath = getTranscriptPath(sessionKey);

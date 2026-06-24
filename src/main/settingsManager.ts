@@ -55,6 +55,10 @@ function sanitizeSettings(value: Partial<AppSettings> | null | undefined): AppSe
       typeof value?.desktopPetNativeWindow === 'boolean'
         ? value.desktopPetNativeWindow
         : defaultSettings.desktopPetNativeWindow,
+    desktopPetAssetsRoot:
+      typeof value?.desktopPetAssetsRoot === 'string' && value.desktopPetAssetsRoot.trim()
+        ? value.desktopPetAssetsRoot.trim()
+        : defaultSettings.desktopPetAssetsRoot,
     desktopPetAssetPath:
       typeof value?.desktopPetAssetPath === 'string' && value.desktopPetAssetPath.trim()
         ? value.desktopPetAssetPath.trim()

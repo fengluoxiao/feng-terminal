@@ -17,7 +17,18 @@ import type {
 } from '../shared/terminal';
 import type { AppSettings } from '../shared/settings';
 import type { WorkspaceState } from '../shared/workspace';
-import type { AgentChooseImageResult, AgentSendRequest, AgentSendResult, AgentSkill, AgentUpdateEvent } from '../shared/agent';
+import type {
+  AgentChooseImageResult,
+  AgentContextReferenceInput,
+  AgentContextSnippet,
+  AgentProjectEntry,
+  AgentSendRequest,
+  AgentSendResult,
+  AgentSkill,
+  AgentUpdateEvent,
+  AcpAgentSummary,
+  AcpRunSummary
+} from '../shared/agent';
 import type { DesktopPetAsset, DesktopPetImportResult } from '../shared/desktopPetAsset';
 
 const terminalApi = {
@@ -62,9 +73,10 @@ const petApi = {
   action: (action: string): Promise<void> => ipcRenderer.invoke('pet:action', action),
   agentUpdate: (store: ConversationStore): void => ipcRenderer.send('pet:agent-update', store),
   nativeAvailable: (): Promise<boolean> => ipcRenderer.invoke('pet:native-available'),
-  listAssets: (): Promise<DesktopPetAsset[]> => ipcRenderer.invoke('pet:list-assets'),
+  listAssets: (customRoot?: string): Promise<DesktopPetAsset[]> => ipcRenderer.invoke('pet:list-assets', customRoot),
   resolveAsset: (manifestPath?: string): Promise<DesktopPetAsset | null> =>
     ipcRenderer.invoke('pet:resolve-asset', manifestPath),
+  chooseAssetsRoot: (): Promise<string | null> => ipcRenderer.invoke('pet:choose-assets-root'),
   importAsset: (): Promise<DesktopPetImportResult> => ipcRenderer.invoke('pet:import-asset')
 };
 
@@ -95,6 +107,13 @@ const agentApi = {
   send: (request: AgentSendRequest): Promise<AgentSendResult> => ipcRenderer.invoke('agent:send', request),
   chooseImage: (): Promise<AgentChooseImageResult | null> => ipcRenderer.invoke('agent:choose-image'),
   listSkills: (): Promise<AgentSkill[]> => ipcRenderer.invoke('agent:list-skills'),
+  listProjectEntries: (projectPath: string, query?: string, directoryPath?: string): Promise<AgentProjectEntry[]> =>
+    ipcRenderer.invoke('agent:list-project-entries', projectPath, query, directoryPath),
+  listContextSnippets: (source: AgentContextReferenceInput, query?: string): Promise<AgentContextSnippet[]> =>
+    ipcRenderer.invoke('agent:list-context-snippets', source, query),
+  listAcpAgents: (): Promise<AcpAgentSummary[]> => ipcRenderer.invoke('agent:acp-list-agents'),
+  listAcpRuns: (conversationId?: string): Promise<AcpRunSummary[]> =>
+    ipcRenderer.invoke('agent:acp-list-runs', conversationId),
   onUpdate: (callback: (event: AgentUpdateEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AgentUpdateEvent) => callback(payload);
     ipcRenderer.on('agent:update', listener);

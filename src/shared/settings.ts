@@ -21,6 +21,7 @@ export interface AppSettings {
   openLinksExternally: boolean;
   desktopPet: boolean;
   desktopPetNativeWindow: boolean;
+  desktopPetAssetsRoot?: string;
   desktopPetAssetPath?: string;
   desktopPetScale: number;
 }
@@ -67,6 +68,7 @@ export const defaultSettings: AppSettings = {
   openLinksExternally: true,
   desktopPet: true,
   desktopPetNativeWindow: true,
+  desktopPetAssetsRoot: undefined,
   desktopPetAssetPath: undefined,
   desktopPetScale: 1
 };

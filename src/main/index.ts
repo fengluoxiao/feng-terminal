@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { killAllAgentProcesses, registerAgentIpc, setAgentUpdateListener } from './agentManager';
@@ -44,14 +44,11 @@ function applySystemWindowCorners(window: BrowserWindow): void {
     `$preference = ${DWMWCP_ROUND};`,
     `[Win32.DwmApi]::DwmSetWindowAttribute($hwnd, ${DWMWA_WINDOW_CORNER_PREFERENCE}, [ref]$preference, 4) | Out-Null`
   ].join(' ');
-  try {
-    execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script], {
-      windowsHide: true,
-      stdio: 'ignore'
-    });
-  } catch {
+  execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script], {
+    windowsHide: true
+  }).once('error', () => {
     // Rounded corners remain best-effort on older Windows builds and some transparent windows.
-  }
+  });
 }
 
 function stopPetSidecar(): void {
@@ -61,10 +58,10 @@ function stopPetSidecar(): void {
   petSidecarAvailable = false;
 }
 
-function killPetSidecarRemainders(sidecarPath: string): void {
-  if (process.platform !== 'win32') return;
-  try {
-    execFileSync(
+function killPetSidecarRemainders(sidecarPath: string): Promise<void> {
+  if (process.platform !== 'win32') return Promise.resolve();
+  return new Promise((resolveCleanup) => {
+    execFile(
       'powershell.exe',
       [
         '-NoLogo',
@@ -72,11 +69,13 @@ function killPetSidecarRemainders(sidecarPath: string): void {
         '-Command',
         `Get-Process pet-sidecar -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${sidecarPath.replaceAll("'", "''")}' } | Stop-Process -Force`
       ],
-      { windowsHide: true, stdio: 'ignore' }
-    );
-  } catch {
-    // Best-effort cleanup only; spawn will still fall back to normal process tracking.
-  }
+      { windowsHide: true },
+      () => resolveCleanup()
+    ).once('error', () => {
+      // Best-effort cleanup only; spawn will still fall back to normal process tracking.
+      resolveCleanup();
+    });
+  });
 }
 
 function sendPetSidecarResize(scale: number): boolean {
@@ -115,7 +114,9 @@ function getPetAction(store: ConversationStore): string {
 
 function syncPetSidecar(settings: AppSettings): void {
   if (petSidecarSyncTimer) clearTimeout(petSidecarSyncTimer);
-  petSidecarSyncTimer = setTimeout(() => syncPetSidecarNow(settings), 80);
+  petSidecarSyncTimer = setTimeout(() => {
+    void syncPetSidecarNow(settings);
+  }, 80);
 }
 
 function isPetSidecarWritable(): boolean {
@@ -125,18 +126,19 @@ function isPetSidecarWritable(): boolean {
 async function ensurePetSidecar(): Promise<void> {
   if (isPetSidecarWritable()) return;
   latestSettings = latestSettings ?? (await readAppSettings());
-  syncPetSidecarNow(latestSettings);
+  await syncPetSidecarNow(latestSettings);
 }
 
-function syncPetSidecarNow(settings: AppSettings): void {
+async function syncPetSidecarNow(settings: AppSettings): Promise<void> {
   petSidecarSyncTimer = null;
   stopPetSidecar();
   if (!settings.desktopPet || !settings.desktopPetNativeWindow || !settings.desktopPetAssetPath) return;
 
   const sidecarPath = getPetSidecarPath();
   if (!existsSync(sidecarPath)) return;
-  killPetSidecarRemainders(sidecarPath);
   const generation = petSidecarGeneration;
+  await killPetSidecarRemainders(sidecarPath);
+  if (generation !== petSidecarGeneration) return;
 
   petSidecar = spawn(sidecarPath, [], {
     env: {
@@ -218,7 +220,7 @@ function registerWindowIpc(): void {
     return latestSettings;
   });
 
-  ipcMain.handle('pet:native-available', () => petSidecarAvailable);
+  ipcMain.handle('pet:native-available', () => existsSync(getPetSidecarPath()));
 
   ipcMain.handle('pet:action', (_event, action: string) => {
     if (action === 'waving' || action === 'jumping') {
@@ -346,7 +348,7 @@ app.whenReady().then(async () => {
   registerPetAgentBridge();
   registerTerminalIpc();
   createWindow(settings);
-  syncPetSidecar(settings);
+  setTimeout(() => syncPetSidecar(settings), 1500);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(settings);

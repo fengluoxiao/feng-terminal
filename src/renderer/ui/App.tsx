@@ -128,6 +128,7 @@ const translations = {
       runs: 'Runs',
       noRuns: 'No runs yet',
       prompt: 'Prompt',
+      referenceHint: 'Use @ for project files or folders. Use # for conversations or Shell context.',
       statuses: {
         running: 'RUNNING',
         done: 'DONE',
@@ -180,7 +181,10 @@ const translations = {
     desktopPetNativeWindow: 'Native pet window',
     desktopPetNativeWindowDescription: 'Use the native sidecar when available; falls back to embedded.',
     desktopPetStyle: 'Pet style',
-    desktopPetStyleDescription: 'Uses Codex pet folders with pet.json and spritesheet.webp.',
+    desktopPetStyleDescription: 'Uses pet folders with pet.json and spritesheet.webp.',
+    desktopPetAssetsRoot: 'Pet folder',
+    desktopPetAssetsRootDescription: 'Folder containing desktop pet subfolders.',
+    chooseDesktopPetRoot: 'Choose',
     desktopPetScale: 'Pet size',
     desktopPetScaleDescription: 'Adjust the floating pet window size.',
     importDesktopPet: 'Import',
@@ -188,7 +192,7 @@ const translations = {
     wakeDesktopPet: 'Wake Pet',
     selectDesktopPet: 'Select',
     selectedDesktopPet: 'Selected',
-    unselectedDesktopPet: 'Not selected',
+    noDesktopPetStyle: 'No pet style selected',
     noDesktopPets: 'No pets found',
     shortcutCommandPalette: 'Command palette',
     shortcutCommandPaletteValue: '⌘K / Ctrl+K',
@@ -277,6 +281,7 @@ const translations = {
       runs: '运行',
       noRuns: '暂无运行记录',
       prompt: '提示词',
+      referenceHint: '输入 @ 引用项目文件/文件夹，输入 # 引用对话或 Shell 上下文。',
       statuses: {
         running: '运行中',
         done: '完成',
@@ -329,7 +334,10 @@ const translations = {
     desktopPetNativeWindow: '原生独立窗口',
     desktopPetNativeWindowDescription: '可用时使用原生 sidecar；不可用时回退到内嵌。',
     desktopPetStyle: '桌宠样式',
-    desktopPetStyleDescription: '使用 Codex 桌宠文件夹格式：pet.json 和 spritesheet.webp。',
+    desktopPetStyleDescription: '使用包含 pet.json 和 spritesheet.webp 的桌宠文件夹格式。',
+    desktopPetAssetsRoot: '桌宠目录',
+    desktopPetAssetsRootDescription: '包含多个桌宠子文件夹的目录。',
+    chooseDesktopPetRoot: '选择',
     desktopPetScale: '桌宠大小',
     desktopPetScaleDescription: '调整悬浮桌宠窗口大小。',
     importDesktopPet: '导入',
@@ -337,7 +345,7 @@ const translations = {
     wakeDesktopPet: '唤醒桌宠',
     selectDesktopPet: '选择',
     selectedDesktopPet: '已选择',
-    unselectedDesktopPet: '未选择',
+    noDesktopPetStyle: '未选择桌宠样式',
     noDesktopPets: '未找到桌宠',
     shortcutCommandPalette: '命令面板',
     shortcutCommandPaletteValue: '⌘K / Ctrl+K',
@@ -526,6 +534,9 @@ export function App(): ReactNode {
     if (profiles.length === 0) return;
 
     let canceled = false;
+    const timeout = window.setTimeout(() => {
+      void refreshAvailableProfiles();
+    }, 650);
 
     async function refreshAvailableProfiles(): Promise<void> {
       const results = await Promise.all(
@@ -550,15 +561,14 @@ export function App(): ReactNode {
       }
     }
 
-    void refreshAvailableProfiles();
-
     return () => {
       canceled = true;
+      window.clearTimeout(timeout);
     };
   }, [activeProfile, profiles, settings.cliBindings]);
 
   const visibleProfiles = useMemo(
-    () => profiles.filter((profile) => availableProfileIds.includes(profile.id)),
+    () => (availableProfileIds.length ? profiles.filter((profile) => availableProfileIds.includes(profile.id)) : profiles),
     [availableProfileIds, profiles]
   );
 
@@ -703,7 +713,8 @@ export function App(): ReactNode {
         tab.id === activeTabId
           ? {
               ...tab,
-              id: nextId
+              id: nextId,
+              sessionKey: nextId
             }
           : tab
       )
@@ -1023,6 +1034,7 @@ export function App(): ReactNode {
                       <TerminalPane
                         key={tab.id}
                         active={tab.id === activeTab.id}
+                        autoStart
                         cwd={tab.cwd}
                         extraArgs={tab.extraArgs}
                         fontSize={settings.terminalFontSize}
@@ -1048,13 +1060,11 @@ export function App(): ReactNode {
               </section>
               <ContextPanel
                 conversation={activeConversation}
-                conversationStore={conversationStore}
                 profile={profiles.find((profile) => profile.id === activeTab.profileId)}
                 profileId={activeTab.profileId}
                 projectPath={activeTab.projectPath ?? activeTab.cwd}
                 tabTitle={activeTab.title}
                 labels={t.contextPanel}
-                onStoreChange={setConversationStore}
               />
             </div>
           )}
@@ -1106,8 +1116,8 @@ function SettingsView({
   ] as const;
 
   useEffect(() => {
-    void window.petApi.listAssets().then(setPetAssets);
-  }, []);
+    void refreshPetAssets(settings.desktopPetAssetsRoot);
+  }, [settings.desktopPetAssetsRoot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1181,6 +1191,18 @@ function SettingsView({
         return [result.asset!, ...nextItems];
       });
       onChange({ desktopPet: true, desktopPetAssetPath: result.asset.manifestPath });
+    });
+  }
+
+  function refreshPetAssets(root = settings.desktopPetAssetsRoot): Promise<void> {
+    return window.petApi.listAssets(root).then(setPetAssets);
+  }
+
+  function chooseDesktopPetRoot(): void {
+    void window.petApi.chooseAssetsRoot().then((root) => {
+      if (!root) return;
+      onChange({ desktopPetAssetsRoot: root });
+      void refreshPetAssets(root);
     });
   }
 
@@ -1293,18 +1315,27 @@ function SettingsView({
                 <strong>{t.desktopPetStyle}</strong>
                 <small>
                   {petAssets.find((asset) => asset.manifestPath === settings.desktopPetAssetPath)?.displayName ??
-                    t.unselectedDesktopPet}
+                    t.noDesktopPetStyle}
                 </small>
               </span>
               <ChevronDown className={petListOpen ? 'open' : undefined} size={16} />
             </button>
             {petListOpen ? (
               <>
+                <label className="pet-root-row">
+                  <span>
+                    <strong>{t.desktopPetAssetsRoot}</strong>
+                    <small>{settings.desktopPetAssetsRoot || t.desktopPetAssetsRootDescription}</small>
+                  </span>
+                  <button type="button" onClick={chooseDesktopPetRoot}>
+                    {t.chooseDesktopPetRoot}
+                  </button>
+                </label>
                 <div className="pet-panel-toolbar">
                   <button type="button" onClick={importDesktopPet}>
                     {t.importDesktopPet}
                   </button>
-                  <button type="button" onClick={() => void window.petApi.listAssets().then(setPetAssets)}>
+                  <button type="button" onClick={() => void refreshPetAssets()}>
                     {t.refreshDesktopPets}
                   </button>
                   <button type="button" onClick={() => void window.petApi.action('waving')}>
@@ -1312,15 +1343,6 @@ function SettingsView({
                   </button>
                 </div>
                 <div className="pet-list">
-                  <PetListItem
-                    description={t.desktopPetStyleDescription}
-                    name={t.unselectedDesktopPet}
-                    preview={<Bot size={26} />}
-                    selected={!settings.desktopPetAssetPath}
-                    selectLabel={t.selectDesktopPet}
-                    selectedLabel={t.selectedDesktopPet}
-                    onSelect={() => onChange({ desktopPetAssetPath: undefined })}
-                  />
                   {petAssets.length > 0 ? (
                     petAssets.map((asset) => (
                       <PetListItem
