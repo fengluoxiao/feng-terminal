@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { Bot, CheckCircle2, ChevronLeft, Image, LoaderCircle, RotateCcw, SendHorizonal, TerminalSquare, X } from 'lucide-react';
+import { LiquidGlass } from 'simple-liquid-glass';
 import type { ConversationFileReference, ConversationMessage, ConversationRecord, ConversationReference, ConversationStore } from '../../shared/conversation';
 import type { CliId } from '../../shared/terminal';
 import type {
@@ -28,6 +29,44 @@ export interface AgentContextSource {
   projectPath?: string;
   sessionKey?: string;
   conversation?: ConversationRecord;
+}
+
+function GlassSuggestionMenu({
+  children,
+  className = '',
+  menuClassName = 'agent-reference-menu'
+}: {
+  children: ReactNode;
+  className?: string;
+  menuClassName?: string;
+}): ReactNode {
+  return (
+    <div className={`agent-reference-glass-shell ${className}`}>
+      <LiquidGlass
+        alpha={0.35}
+        blur={8}
+        className="agent-reference-glass"
+        displace={7}
+        dispersion={28}
+        effectMode="svg"
+        frost={0.08}
+        glassColor="rgba(255,255,255,0.28)"
+        lens="convex"
+        lensStrength={1.35}
+        lightness={68}
+        liquid="flow"
+        liquidScale={3}
+        liquidSpeed={0.75}
+        quality="high"
+        radius={8}
+        saturation={180}
+        scale={220}
+        style={{ width: '100%' }}
+      >
+        <div className={menuClassName}>{children}</div>
+      </LiquidGlass>
+    </div>
+  );
 }
 
 function getSkillSearchScore(skill: AgentSkill, query: string): number {
@@ -1026,7 +1065,7 @@ export function AgentPane({
 
     if (showFileMenu && (event.key === 'Enter' || event.key === 'Tab')) {
       event.preventDefault();
-      insertFileReference(matchingFiles[selectedFileIndex] ?? matchingFiles[0]);
+      insertFileReference(matchingFiles[selectedFileIndex] ?? matchingFiles[0], event.ctrlKey || event.metaKey);
       return;
     }
 
@@ -1236,7 +1275,7 @@ export function AgentPane({
               />
             </div>
             {showSkillMenu ? (
-              <div className="agent-skill-menu">
+              <GlassSuggestionMenu menuClassName="agent-skill-menu">
                 <div className="agent-skill-menu-meta">
                   <span>{skillQuery ? `${labels.search}: ${skillQuery}` : `${skills.length} ${labels.skills}`}</span>
                 </div>
@@ -1255,10 +1294,10 @@ export function AgentPane({
                     </small>
                   </button>
                 ))}
-              </div>
+              </GlassSuggestionMenu>
             ) : null}
             {showReferenceMenu ? (
-              <div className="agent-reference-menu">
+              <GlassSuggestionMenu className="agent-reference-context-menu">
                 <div className="agent-skill-menu-meta">
                   <span>
                     {contextQuery ? `${labels.search}: ${contextQuery}` : `${contextSources.length} ${labels.contexts}`}
@@ -1281,10 +1320,10 @@ export function AgentPane({
                     </small>
                   </button>
                 ))}
-              </div>
+              </GlassSuggestionMenu>
             ) : null}
             {showSnippetMenu ? (
-              <div className="agent-reference-menu agent-snippet-menu">
+              <GlassSuggestionMenu className="agent-reference-context-menu agent-snippet-menu">
                 <div className="agent-skill-menu-meta">
                   <span>{snippetQuery ? `${labels.searchInContext}: ${snippetQuery}` : labels.selectFromContext}</span>
                 </div>
@@ -1301,10 +1340,10 @@ export function AgentPane({
                     <small title={item.body.replace(/\s+/gu, ' ')}>{item.body.replace(/\s+/gu, ' ')}</small>
                   </button>
                 ))}
-              </div>
+              </GlassSuggestionMenu>
             ) : null}
             {showFileMenu ? (
-              <div className="agent-reference-menu">
+              <GlassSuggestionMenu className="agent-reference-file-menu">
                 <div className="agent-skill-menu-meta">
                   {browsingFiles ? (
                     <div className="agent-file-breadcrumbs">
@@ -1348,7 +1387,7 @@ export function AgentPane({
                     <small title={item.relativePath}>{item.relativePath}</small>
                   </button>
                 ))}
-              </div>
+              </GlassSuggestionMenu>
             ) : null}
           </div>
           <button type="button" disabled={(!prompt.trim() && attachments.length === 0) || sending || !conversation} onClick={sendPrompt}>

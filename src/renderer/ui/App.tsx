@@ -510,6 +510,7 @@ export function App(): ReactNode {
   const tabsScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState({ left: false, right: false });
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const activeConversation = conversationStore.conversations.find(
     (conversation) => conversation.id === activeTab.conversationId
@@ -615,15 +616,22 @@ export function App(): ReactNode {
   }, [activeTabId, tabs.length, conversationPanelOpen]);
 
   useEffect(() => {
-    if (!tabMenuOpen) return;
+    if (!tabMenuOpen && !tabContextMenu) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest('.tab-menu-popover') || target?.closest('[aria-label="' + t.tabMenu + '"]')) return;
+      if (
+        target?.closest('.tab-menu-popover') ||
+        target?.closest('.tab-context-menu-popover') ||
+        target?.closest('[aria-label="' + t.tabMenu + '"]')
+      ) {
+        return;
+      }
       setTabMenuOpen(false);
+      setTabContextMenu(null);
     };
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [tabMenuOpen, t.tabMenu]);
+  }, [tabContextMenu, tabMenuOpen, t.tabMenu]);
 
   useEffect(() => {
     if (profiles.length === 0) return;
@@ -811,12 +819,7 @@ export function App(): ReactNode {
   }
 
   function closeActiveTab(): void {
-    if (tabs.length === 1) return;
-    const index = tabs.findIndex((tab) => tab.id === activeTabId);
-    const nextTabs = tabs.filter((tab) => tab.id !== activeTabId);
-    setTabs(nextTabs);
-    setActiveTabId(nextTabs[Math.max(0, index - 1)].id);
-    setTabMenuOpen(false);
+    closeTab(activeTabId);
   }
 
   function restartActiveTab(): void {
@@ -843,21 +846,26 @@ export function App(): ReactNode {
     if (tabId === activeTabId) {
       setActiveTabId(nextTabs[Math.max(0, index - 1)].id);
     }
+    setTabMenuOpen(false);
+    setTabContextMenu(null);
   }
 
-  function closeOtherTabs(): void {
-    const current = tabs.find((tab) => tab.id === activeTabId);
+  function closeOtherTabs(tabId = activeTabId): void {
+    const current = tabs.find((tab) => tab.id === tabId);
     if (!current) return;
     setTabs([current]);
     setActiveTabId(current.id);
     setTabMenuOpen(false);
+    setTabContextMenu(null);
   }
 
-  function closeTabsToRight(): void {
-    const index = tabs.findIndex((tab) => tab.id === activeTabId);
+  function closeTabsToRight(tabId = activeTabId): void {
+    const index = tabs.findIndex((tab) => tab.id === tabId);
     if (index < 0 || index === tabs.length - 1) return;
     setTabs(tabs.slice(0, index + 1));
+    setActiveTabId((current) => (tabs.findIndex((tab) => tab.id === current) > index ? tabId : current));
     setTabMenuOpen(false);
+    setTabContextMenu(null);
   }
 
   function updateSettings(patch: Partial<AppSettings>): void {
@@ -1146,6 +1154,15 @@ export function App(): ReactNode {
                         type="button"
                         className={tab.id === activeTab.id ? 'tab active' : 'tab'}
                         onClick={() => setActiveTabId(tab.id)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setTabMenuOpen(false);
+                          setTabContextMenu({
+                            tabId: tab.id,
+                            x: event.clientX,
+                            y: event.clientY
+                          });
+                        }}
                       >
                         <Icon size={14} />
                         <span>{tab.title}</span>
@@ -1238,13 +1255,70 @@ export function App(): ReactNode {
                             <button type="button" disabled={tabs.length <= 1} onClick={closeActiveTab}>
                               {t.closeCurrentTab}
                             </button>
-                            <button type="button" disabled={tabs.length <= 1} onClick={closeOtherTabs}>
+                            <button type="button" disabled={tabs.length <= 1} onClick={() => closeOtherTabs()}>
                               {t.closeOtherTabs}
                             </button>
                             <button
                               type="button"
                               disabled={tabs.findIndex((tab) => tab.id === activeTabId) >= tabs.length - 1}
-                              onClick={closeTabsToRight}
+                              onClick={() => closeTabsToRight()}
+                            >
+                              {t.closeTabsToRight}
+                            </button>
+                          </div>
+                        </div>
+                      </LiquidGlass>
+                    </div>
+                  ) : null}
+                  {tabContextMenu ? (
+                    <div
+                      className="tab-context-menu-popover"
+                      style={{
+                        left: tabContextMenu.x,
+                        top: tabContextMenu.y
+                      }}
+                    >
+                      <LiquidGlass
+                        alpha={0.35}
+                        blur={8}
+                        className="tab-menu-glass"
+                        displace={7}
+                        dispersion={28}
+                        effectMode="svg"
+                        frost={0.08}
+                        glassColor="rgba(255,255,255,0.28)"
+                        lens="convex"
+                        lensStrength={1.35}
+                        lightness={68}
+                        liquid="flow"
+                        liquidScale={3}
+                        liquidSpeed={0.75}
+                        quality="high"
+                        radius={8}
+                        saturation={180}
+                        scale={220}
+                        style={{ width: '100%' }}
+                      >
+                        <div className="tab-menu-content tab-context-menu-content">
+                          <div className="tab-menu-actions">
+                            <button
+                              type="button"
+                              disabled={tabs.length <= 1}
+                              onClick={() => closeTab(tabContextMenu.tabId)}
+                            >
+                              {t.closeCurrentTab}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={tabs.length <= 1}
+                              onClick={() => closeOtherTabs(tabContextMenu.tabId)}
+                            >
+                              {t.closeOtherTabs}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={tabs.findIndex((tab) => tab.id === tabContextMenu.tabId) >= tabs.length - 1}
+                              onClick={() => closeTabsToRight(tabContextMenu.tabId)}
                             >
                               {t.closeTabsToRight}
                             </button>
