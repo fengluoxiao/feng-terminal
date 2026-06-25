@@ -519,7 +519,7 @@ async function findLatestOpenCodeSessionId(projectPath: string, since: string): 
   return null;
 }
 
-async function bindConversationSession(request: ConversationBindSessionRequest): Promise<ConversationStore> {
+export async function bindConversationSession(request: ConversationBindSessionRequest): Promise<ConversationStore> {
   const store = await readConversationStore();
   const conversation = store.conversations.find((item) => item.id === request.id);
   if (!conversation || conversation.sessionId) return store;

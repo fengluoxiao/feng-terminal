@@ -9,6 +9,12 @@ export interface AgentSendRequest {
   contextSnippets?: AgentContextSnippetInput[];
   referencedConversationIds?: string[];
   contextReferences?: AgentContextReferenceInput[];
+  toolApprovals?: AgentToolApprovalInput[];
+}
+
+export interface AgentToolApprovalInput {
+  tool: string;
+  scope: 'once' | 'always';
 }
 
 export interface AgentFileReferenceInput {

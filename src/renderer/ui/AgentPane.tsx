@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
-import { Bot, CheckCircle2, ChevronLeft, CircleAlert, CircleCheck, File, Folder, Image, Link2, LoaderCircle, Play, RotateCcw, SendHorizonal, TerminalSquare, X } from 'lucide-react';
-import type { ConversationFileReference, ConversationRecord, ConversationReference, ConversationStore } from '../../shared/conversation';
+import { Bot, CheckCircle2, ChevronLeft, Image, LoaderCircle, RotateCcw, SendHorizonal, TerminalSquare, X } from 'lucide-react';
+import type { ConversationFileReference, ConversationMessage, ConversationRecord, ConversationReference, ConversationStore } from '../../shared/conversation';
 import type { CliId } from '../../shared/terminal';
 import type {
   AgentContextReferenceInput,
@@ -13,23 +13,11 @@ import type {
   AgentSkill
 } from '../../shared/agent';
 import { getCliSkills } from '../../shared/skills';
+import { getMessageReferenceLabels, MarkdownMessage, PlainMarkdownLine } from './MarkdownRenderer';
 
 interface ImagePreviewState {
   name: string;
   url: string;
-}
-
-type MarkdownBlock =
-  | { type: 'paragraph'; text: string }
-  | { type: 'code'; text: string; language?: string }
-  | { type: 'list'; items: string[] };
-
-interface TerminalPreview {
-  status: 'queued' | 'sent' | 'running' | 'warning' | 'failed' | 'completed' | 'skipped';
-  target: string;
-  cwd: string;
-  command: string;
-  output?: string;
 }
 
 export interface AgentContextSource {
@@ -95,6 +83,17 @@ function getTrailingTrigger(value: string, symbols: string[]): { symbol: string;
   };
 }
 
+function getSkillTrigger(value: string): { query: string; start: number } | null {
+  const lineStart = Math.max(value.lastIndexOf('\n') + 1, 0);
+  const tail = value.slice(lineStart);
+  const match = /(?:^|\s)\/([^\s/]*)$/u.exec(tail);
+  if (!match) return null;
+  return {
+    query: match[1].trim().toLowerCase(),
+    start: lineStart + match.index + match[0].lastIndexOf('/')
+  };
+}
+
 function replaceTrailingTrigger(value: string, trigger: { start: number } | null, label: string): string {
   if (!trigger) return `${value}${label}`;
   const before = value.slice(0, trigger.start).replace(/->$/u, '').trimEnd();
@@ -102,6 +101,15 @@ function replaceTrailingTrigger(value: string, trigger: { start: number } | null
   const separator = before && !/\s$/u.test(before) ? ' ' : '';
   const suffix = after ? (!/^\s/u.test(after) ? ' ' : '') : ' ';
   return `${before}${separator}${label}${suffix}${after}`;
+}
+
+function replaceSkillTrigger(value: string, trigger: { start: number } | null, replacement: string): string {
+  if (!trigger) return `${replacement}${value}`.trimStart();
+  const before = value.slice(0, trigger.start);
+  const after = value.slice(trigger.start).replace(/^\/[^\s/]*/u, '');
+  const separator = before && !/\s$/u.test(before) ? ' ' : '';
+  const suffix = after ? (!/^\s/u.test(after) ? ' ' : '') : '';
+  return `${before}${separator}${replacement}${suffix}${after}`.trimStart();
 }
 
 function getPathSegments(path: string | undefined): string[] {
@@ -134,169 +142,6 @@ function getBreadcrumbLabel(root: string | undefined, current: string | undefine
   const currentSegments = getPathSegments(current);
   const relative = currentSegments.slice(rootSegments.length);
   return [rootName, ...relative].filter(Boolean).join(' / ');
-}
-
-function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-  let paragraph: string[] = [];
-  let listItems: string[] = [];
-  let codeLines: string[] | null = null;
-  let codeLanguage: string | undefined;
-
-  function flushParagraph(): void {
-    if (!paragraph.length) return;
-    blocks.push({ type: 'paragraph', text: paragraph.join('\n').trim() });
-    paragraph = [];
-  }
-
-  function flushList(): void {
-    if (!listItems.length) return;
-    blocks.push({ type: 'list', items: listItems });
-    listItems = [];
-  }
-
-  for (const line of lines) {
-    const fence = /^```([a-z0-9_-]*)\s*$/iu.exec(line.trim());
-    if (fence) {
-      if (codeLines) {
-        blocks.push({ type: 'code', text: codeLines.join('\n'), language: codeLanguage });
-        codeLines = null;
-        codeLanguage = undefined;
-        continue;
-      }
-
-      flushParagraph();
-      flushList();
-      codeLines = [];
-      codeLanguage = fence[1] || undefined;
-      continue;
-    }
-
-    if (codeLines) {
-      codeLines.push(line);
-      continue;
-    }
-
-    const listMatch = /^\s*[-*]\s+(.+)$/u.exec(line);
-    if (listMatch) {
-      flushParagraph();
-      listItems.push(listMatch[1]);
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    flushList();
-    paragraph.push(line);
-  }
-
-  if (codeLines) blocks.push({ type: 'code', text: codeLines.join('\n'), language: codeLanguage });
-  flushParagraph();
-  flushList();
-
-  return blocks;
-}
-
-function renderInlineMarkdown(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const parts = text.split(/(`[^`]+`)/gu);
-  parts.forEach((part, index) => {
-    if (!part) return;
-    if (part.startsWith('`') && part.endsWith('`') && part.length > 1) {
-      nodes.push(<code key={index}>{part.slice(1, -1)}</code>);
-      return;
-    }
-    nodes.push(part);
-  });
-  return nodes;
-}
-
-function parseTerminalPreview(text: string): TerminalPreview | null {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const fields: Record<string, string> = {};
-  let multilineKey: string | null = null;
-
-  for (const line of lines) {
-    const multilineMatch = /^([a-z]+):\s*\|\s*$/iu.exec(line);
-    if (multilineMatch) {
-      multilineKey = multilineMatch[1].toLowerCase();
-      fields[multilineKey] = '';
-      continue;
-    }
-
-    const fieldMatch = /^([a-z]+):\s*(.*)$/iu.exec(line);
-    if (fieldMatch && !line.startsWith('  ')) {
-      multilineKey = null;
-      fields[fieldMatch[1].toLowerCase()] = fieldMatch[2].trim();
-      continue;
-    }
-
-    if (multilineKey) {
-      const value = line.startsWith('  ') ? line.slice(2) : line;
-      fields[multilineKey] = fields[multilineKey] ? `${fields[multilineKey]}\n${value}` : value;
-    }
-  }
-
-  const status = fields.status as TerminalPreview['status'];
-  if (!['queued', 'sent', 'running', 'warning', 'failed', 'completed', 'skipped'].includes(status)) return null;
-  if (!fields.command) return null;
-
-  return {
-    status,
-    target: fields.target || 'Terminal',
-    cwd: fields.cwd || '',
-    command: fields.command,
-    output: fields.output
-  };
-}
-
-function getTerminalPreviewLabel(status: TerminalPreview['status']): string {
-  if (status === 'completed') return 'completed';
-  if (status === 'failed') return 'failed';
-  if (status === 'skipped') return 'skipped';
-  if (status === 'warning') return 'warning';
-  if (status === 'running') return 'running';
-  if (status === 'sent') return 'sent';
-  return 'queued';
-}
-
-function TerminalPreviewCard({ preview }: { preview: TerminalPreview }): ReactNode {
-  const isFailed = preview.status === 'failed' || preview.status === 'skipped';
-  const isDone = preview.status === 'completed';
-  const Icon = isFailed ? CircleAlert : isDone ? CircleCheck : preview.status === 'running' ? LoaderCircle : Play;
-
-  return (
-    <section className={`terminal-preview-card ${preview.status}`}>
-      <header>
-        <span className="terminal-preview-icon">
-          <Icon size={14} />
-        </span>
-        <strong>{preview.target}</strong>
-        <em>{getTerminalPreviewLabel(preview.status)}</em>
-      </header>
-      {preview.cwd ? (
-        <div className="terminal-preview-row">
-          <span>cwd</span>
-          <code>{preview.cwd}</code>
-        </div>
-      ) : null}
-      <div className="terminal-preview-row">
-        <span>cmd</span>
-        <pre>{preview.command}</pre>
-      </div>
-      {preview.output ? (
-        <details className="terminal-preview-output" open={isFailed}>
-          <summary>output</summary>
-          <pre>{preview.output}</pre>
-        </details>
-      ) : null}
-    </section>
-  );
 }
 
 function renderPromptHighlight(
@@ -412,43 +257,6 @@ function renderPromptEditorDom(
     editor.append(button);
     index = match.index + match.label.length;
   }
-}
-
-function renderMessageReferenceHighlights(
-  text: string,
-  fileReferences?: ConversationFileReference[],
-  references?: ConversationReference[]
-): ReactNode[] {
-  const labels = [
-    ...(fileReferences ?? []).map((item) => ({ label: `@${item.name}`, className: 'file' })),
-    ...(references ?? []).map((item) => ({ label: `#${item.title}`, className: 'context' }))
-  ]
-    .filter((item) => item.label.length > 1)
-    .sort((left, right) => right.label.length - left.label.length);
-  const nodes: ReactNode[] = [];
-  let index = 0;
-
-  while (index < text.length) {
-    const match = labels
-      .map((item) => ({ ...item, index: text.indexOf(item.label, index) }))
-      .filter((item) => item.index >= 0)
-      .sort((left, right) => left.index - right.index || right.label.length - left.label.length)[0];
-
-    if (!match) {
-      nodes.push(text.slice(index));
-      break;
-    }
-
-    if (match.index > index) nodes.push(text.slice(index, match.index));
-    nodes.push(
-      <span className={`agent-highlight-reference ${match.className}`} key={`${match.label}-${match.index}`}>
-        {match.label}
-      </span>
-    );
-    index = match.index + match.label.length;
-  }
-
-  return nodes.length ? nodes : [text];
 }
 
 function getPromptReferenceLabels(
@@ -593,41 +401,36 @@ function getNearestReferenceTokenBoundary(
   return null;
 }
 
-function MarkdownMessage({ content, className }: { content: string; className?: string }): ReactNode {
-  const blocks = parseMarkdownBlocks(content);
-  if (!blocks.length) return <p className={className} />;
+function getPreviousUserMessage(messages: ConversationMessage[], index: number): ConversationMessage | undefined {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const message = messages[cursor];
+    if (
+      message.role === 'user' &&
+      !/^Permission approved (?:once|always) for\b/iu.test(message.content.trim())
+    ) {
+      return message;
+    }
+  }
+  return undefined;
+}
 
-  return (
-    <div className={className ? `agent-message-markdown ${className}` : 'agent-message-markdown'}>
-      {blocks.map((block, index) => {
-        if (block.type === 'code') {
-          const terminalPreview = block.language === 'terminal-preview' ? parseTerminalPreview(block.text) : null;
-          if (terminalPreview) {
-            return <TerminalPreviewCard key={index} preview={terminalPreview} />;
-          }
+function detectPermissionRequest(content: string): string | null {
+  const normalized = content.toLowerCase();
+  if (
+    /(?:需要|请).{0,12}(?:授权|批准|允许|权限)/u.test(content) ||
+    /(?:permission|approve|approval|authorize|allow)/iu.test(content)
+  ) {
+    const toolMatch = /\b(WebSearch|WebFetch|Bash|Read|Write|Edit|MultiEdit|Grep|Glob)\b/u.exec(content);
+    if (toolMatch) return toolMatch[1];
+    if (/联网|网络|搜索|websearch|web search/iu.test(content)) return 'WebSearch';
+    return 'tool';
+  }
+  if (normalized.includes('websearch') && /(?:权限|授权|permission|approve|allow)/iu.test(content)) return 'WebSearch';
+  return null;
+}
 
-          return (
-            <pre key={index}>
-              {block.language ? <span>{block.language}</span> : null}
-              <code>{block.text}</code>
-            </pre>
-          );
-        }
-
-        if (block.type === 'list') {
-          return (
-            <ul key={index}>
-              {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
-              ))}
-            </ul>
-          );
-        }
-
-        return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
-      })}
-    </div>
-  );
+function isCoordinationMessage(content: string): boolean {
+  return /^(?:Calling #.+ for this request|#.+ \(.+\) returned:|#.+ \(.+\) failed:)/u.test(content.trim());
 }
 
 function UserMessageContent({
@@ -641,7 +444,9 @@ function UserMessageContent({
 }): ReactNode {
   return (
     <div className="agent-message-markdown">
-      <p>{renderMessageReferenceHighlights(content, fileReferences, references)}</p>
+      <p>
+        <PlainMarkdownLine content={content} references={getMessageReferenceLabels(fileReferences, references)} />
+      </p>
     </div>
   );
 }
@@ -662,6 +467,26 @@ interface AgentPaneProps {
     interrupted: string;
     thinking: string;
     retry: string;
+    approvePermission: string;
+    permissionRequest: string;
+    search: string;
+    skills: string;
+    contexts: string;
+    terminal: string;
+    terminalTranscript: string;
+    searchInContext: string;
+    selectFromContext: string;
+    back: string;
+    use: string;
+    folder: string;
+    file: string;
+    previewClose: string;
+    preview: {
+      cwd: string;
+      cmd: string;
+      output: string;
+      statuses: Record<'queued' | 'sent' | 'running' | 'warning' | 'failed' | 'completed' | 'skipped', string>;
+    };
   };
 }
 
@@ -702,7 +527,8 @@ export function AgentPane({
     () => (profileId === 'codex' && codexSkills?.length ? codexSkills : getCliSkills(profileId)),
     [codexSkills, profileId]
   );
-  const skillQuery = prompt.startsWith('/') && !prompt.includes('\n') ? prompt.slice(1).trim().toLowerCase() : null;
+  const skillTrigger = useMemo(() => getSkillTrigger(prompt), [prompt]);
+  const skillQuery = skillTrigger?.query ?? null;
   const matchingSkills = useMemo(
     () => {
       if (skillQuery === null) return [];
@@ -869,6 +695,41 @@ export function AgentPane({
     setReferencedSnippets((current) => current.filter((item) => text.includes(`#${item.title}`)));
   }, [contextSources, prompt]);
 
+  function sendAgentRequest(request: Omit<Parameters<typeof window.agentApi.send>[0], 'conversationId'>): void {
+    if (!conversation || sending) return;
+    setSending(true);
+    void window.agentApi
+      .send({
+        conversationId: conversation.id,
+        ...request
+      })
+      .then((result) => {
+        onStoreChange(result.store);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+      })
+      .finally(() => {
+        setSending(false);
+      });
+  }
+
+  function toContextReferenceInput(reference: ConversationReference): AgentContextReferenceInput | null {
+    const source = contextSources.find((item) => item.id === reference.id || item.title === reference.title);
+    if (source?.type === 'terminal' && source.sessionKey) {
+      return {
+        type: 'terminal',
+        id: source.sessionKey,
+        title: source.title,
+        projectPath: source.projectPath,
+        sessionKey: source.sessionKey
+      };
+    }
+    if (source?.type === 'conversation' && source.conversation) return { type: 'conversation', id: source.conversation.id };
+    if (reference.cliId !== 'shell') return { type: 'conversation', id: reference.id };
+    return null;
+  }
+
   function sendText(value: string, nextAttachments = attachments): void {
     const nextPrompt = value.trim();
     const attachmentSnapshot = nextAttachments.slice();
@@ -917,24 +778,12 @@ export function AgentPane({
     setReferencedFiles([]);
     setReferencedSnippets([]);
     setReferencedContextIds([]);
-    setSending(true);
-    void window.agentApi
-      .send({
-        conversationId: conversation.id,
+    sendAgentRequest({
         prompt: nextPrompt || 'Describe this image.',
         attachments: attachmentSnapshot,
         fileReferences: fileSnapshot,
         contextSnippets: snippetSnapshot,
         contextReferences: referenceSnapshot
-      })
-      .then((result) => {
-        onStoreChange(result.store);
-      })
-      .catch((error: unknown) => {
-        console.error(error);
-      })
-      .finally(() => {
-        setSending(false);
       });
   }
 
@@ -944,7 +793,8 @@ export function AgentPane({
 
   function insertSkill(skill: AgentSkill): void {
     const current = getPlainTextFromEditor(editorRef.current ?? document.createElement('div')) || prompt;
-    const nextText = current.startsWith('/') && !current.includes('\n') ? '' : current;
+    const trigger = getSkillTrigger(current);
+    const nextText = replaceSkillTrigger(current, trigger, '');
     const nextPrompt = `${skill.prompt}${nextText}`.trimStart();
     setPrompt(nextPrompt);
     updateEditorPrompt(editorRef.current, nextPrompt, referenceLabels);
@@ -1017,6 +867,38 @@ export function AgentPane({
       .reverse()
       .find((message) => message.role === 'user');
     if (previousUserMessage) sendText(previousUserMessage.content);
+  }
+
+  function approvePermissionBefore(index: number, tool: string): void {
+    const previousUserMessage = getPreviousUserMessage(messages, index);
+    const originalTask = previousUserMessage?.content ? previousUserMessage.content : '';
+    const contextReferences = (previousUserMessage?.references ?? [])
+      .map(toContextReferenceInput)
+      .filter((item): item is AgentContextReferenceInput => Boolean(item));
+    const fileReferences = (previousUserMessage?.fileReferences ?? []).map<AgentFileReferenceInput>((item) => ({
+      id: item.id,
+      type: item.type,
+      name: item.name,
+      path: item.path,
+      relativePath: item.relativePath
+    }));
+    const request: Omit<Parameters<typeof window.agentApi.send>[0], 'conversationId'> = {
+      prompt: originalTask || `Continue with the approved ${tool} capability.`,
+      contextReferences,
+      fileReferences,
+      toolApprovals: [{ tool, scope: 'once' }]
+    };
+    if (conversation && !conversation.sessionId && conversation.cliId === 'opencode') {
+      void window.conversationApi
+        .bindSession({ id: conversation.id })
+        .then((store) => {
+          onStoreChange(store);
+          sendAgentRequest(request);
+        })
+        .catch(() => sendAgentRequest(request));
+      return;
+    }
+    sendAgentRequest(request);
   }
 
   function addImageAttachment(file: File): void {
@@ -1218,10 +1100,23 @@ export function AgentPane({
             </div>
           ) : null}
           {messages.map((message, index) => (
-            <article className={`agent-message ${message.role} ${message.status ?? ''}`} key={message.id}>
+            <article
+              className={[
+                'agent-message',
+                message.role,
+                message.status ?? '',
+                message.role === 'system' ? 'coordination' : '',
+                message.role === 'system' && isCoordinationMessage(message.content) ? 'agent-call' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              key={message.id}
+            >
               <div className="agent-message-avatar">{message.role === 'user' ? '你' : <Bot size={13} />}</div>
               <div className="agent-message-bubble">
-                <span className="agent-message-author">{message.role === 'user' ? labels.user : profileName}</span>
+                <span className="agent-message-author">
+                  {message.role === 'user' ? labels.user : message.role === 'system' ? labels.contexts : profileName}
+                </span>
                 {message.role === 'user' ? (
                   <UserMessageContent
                     content={message.content}
@@ -1238,6 +1133,11 @@ export function AgentPane({
                           ? labels.thinking
                           : message.content
                     }
+                    labels={labels}
+                    references={getMessageReferenceLabels(
+                      getPreviousUserMessage(messages, index)?.fileReferences,
+                      getPreviousUserMessage(messages, index)?.references
+                    )}
                   />
                 )}
                 {message.attachments?.length ? (
@@ -1254,30 +1154,20 @@ export function AgentPane({
                     ))}
                   </div>
                 ) : null}
-                {message.references?.length ? (
-                  <div className="agent-message-references">
-                    {message.references.map((reference) => (
-                      <span key={reference.id}>
-                        <Link2 size={12} />
-                        {reference.title}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                {message.fileReferences?.length ? (
-                  <div className="agent-message-references">
-                    {message.fileReferences.map((reference) => (
-                      <span key={reference.id}>
-                        {reference.type === 'directory' ? <Folder size={12} /> : <File size={12} />}
-                        {reference.relativePath}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
                 {message.status === 'error' ? (
                   <button className="agent-message-action" type="button" onClick={() => retryBefore(index)}>
                     <RotateCcw size={13} />
                     <span>{labels.retry}</span>
+                  </button>
+                ) : null}
+                {message.role !== 'user' && message.status !== 'running' && detectPermissionRequest(message.content) ? (
+                  <button
+                    className="agent-message-action permission"
+                    type="button"
+                    onClick={() => approvePermissionBefore(index, detectPermissionRequest(message.content) ?? 'tool')}
+                  >
+                    <CheckCircle2 size={13} />
+                    <span>{labels.approvePermission}</span>
                   </button>
                 ) : null}
               </div>
@@ -1344,7 +1234,7 @@ export function AgentPane({
             {showSkillMenu ? (
               <div className="agent-skill-menu">
                 <div className="agent-skill-menu-meta">
-                  <span>{skillQuery ? `Search: ${skillQuery}` : `${skills.length} skills`}</span>
+                  <span>{skillQuery ? `${labels.search}: ${skillQuery}` : `${skills.length} ${labels.skills}`}</span>
                 </div>
                 {matchingSkills.map((skill, index) => (
                   <button
@@ -1354,9 +1244,11 @@ export function AgentPane({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => insertSkill(skill)}
                   >
-                    <span>{skill.command}</span>
-                    <strong>{skill.label}</strong>
-                    <small>{skill.source ? `${skill.source} - ${skill.description}` : skill.description}</small>
+                    <span title={skill.command}>{skill.command}</span>
+                    <strong title={skill.label}>{skill.label}</strong>
+                    <small title={skill.source ? `${skill.source} - ${skill.description}` : skill.description}>
+                      {skill.source ? `${skill.source} - ${skill.description}` : skill.description}
+                    </small>
                   </button>
                 ))}
               </div>
@@ -1365,7 +1257,7 @@ export function AgentPane({
               <div className="agent-reference-menu">
                 <div className="agent-skill-menu-meta">
                   <span>
-                    {contextQuery ? `Search: ${contextQuery}` : `${contextSources.length} contexts`}
+                    {contextQuery ? `${labels.search}: ${contextQuery}` : `${contextSources.length} ${labels.contexts}`}
                   </span>
                 </div>
                 {matchingSources.map((item, index) => (
@@ -1376,9 +1268,13 @@ export function AgentPane({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => insertContextReference(item)}
                   >
-                    <span>#{item.title}</span>
-                    <strong>{item.type === 'terminal' ? 'Terminal' : item.cliId}</strong>
-                    <small>{item.type === 'terminal' ? `Terminal transcript - ${item.projectPath ?? ''}` : item.projectPath}</small>
+                    <span title={`#${item.title}`}>#{item.title}</span>
+                    <strong title={item.type === 'terminal' ? labels.terminal : item.cliId}>
+                      {item.type === 'terminal' ? labels.terminal : item.cliId}
+                    </strong>
+                    <small title={item.type === 'terminal' ? `${labels.terminalTranscript} - ${item.projectPath ?? ''}` : item.projectPath}>
+                      {item.type === 'terminal' ? `${labels.terminalTranscript} - ${item.projectPath ?? ''}` : item.projectPath}
+                    </small>
                   </button>
                 ))}
               </div>
@@ -1386,7 +1282,7 @@ export function AgentPane({
             {showSnippetMenu ? (
               <div className="agent-reference-menu agent-snippet-menu">
                 <div className="agent-skill-menu-meta">
-                  <span>{snippetQuery ? `Search in #context: ${snippetQuery}` : 'Select from #context'}</span>
+                  <span>{snippetQuery ? `${labels.searchInContext}: ${snippetQuery}` : labels.selectFromContext}</span>
                 </div>
                 {matchingSnippets.map((item, index) => (
                   <button
@@ -1396,9 +1292,9 @@ export function AgentPane({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => insertContextSnippet(item)}
                   >
-                    <span>#{item.title}</span>
-                    <strong>{item.sourceTitle}</strong>
-                    <small>{item.body.replace(/\s+/gu, ' ')}</small>
+                    <span title={`#${item.title}`}>#{item.title}</span>
+                    <strong title={item.sourceTitle}>{item.sourceTitle}</strong>
+                    <small title={item.body.replace(/\s+/gu, ' ')}>{item.body.replace(/\s+/gu, ' ')}</small>
                   </button>
                 ))}
               </div>
@@ -1413,22 +1309,24 @@ export function AgentPane({
                         disabled={!fileBrowsePath}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => setFileBrowsePath(getParentPath(fileBrowsePath, conversation?.projectPath))}
-                        aria-label="Back"
+                        aria-label={labels.back}
                       >
                         <ChevronLeft size={12} />
                       </button>
-                      <span>{getBreadcrumbLabel(conversation?.projectPath, fileBrowsePath)}</span>
+                      <span title={fileBrowsePath ?? conversation?.projectPath}>
+                        {getBreadcrumbLabel(conversation?.projectPath, fileBrowsePath)}
+                      </span>
                       <button
                         className="agent-file-use-current"
                         type="button"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={insertCurrentFolderReference}
                       >
-                        Use
+                        {labels.use}
                       </button>
                     </div>
                   ) : (
-                    <span>{`Search: ${fileQuery}`}</span>
+                    <span>{`${labels.search}: ${fileQuery}`}</span>
                   )}
                 </div>
                 {matchingFiles.map((item, index) => (
@@ -1439,9 +1337,11 @@ export function AgentPane({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={(event) => insertFileReference(item, event.ctrlKey || event.metaKey)}
                   >
-                    <span>@{item.name}</span>
-                    <strong>{item.type === 'directory' ? 'Folder' : 'File'}</strong>
-                    <small>{item.relativePath}</small>
+                    <span title={`@${item.name}`}>@{item.name}</span>
+                    <strong title={item.type === 'directory' ? labels.folder : labels.file}>
+                      {item.type === 'directory' ? labels.folder : labels.file}
+                    </strong>
+                    <small title={item.relativePath}>{item.relativePath}</small>
                   </button>
                 ))}
               </div>
@@ -1461,7 +1361,7 @@ export function AgentPane({
           onClick={() => setPreviewImage(null)}
         >
           <div className="agent-image-preview" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="agent-image-preview-close" onClick={() => setPreviewImage(null)} aria-label="Close preview">
+            <button type="button" className="agent-image-preview-close" onClick={() => setPreviewImage(null)} aria-label={labels.previewClose}>
               <X size={16} />
             </button>
             <img alt={previewImage.name} src={previewImage.url} />

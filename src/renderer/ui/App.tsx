@@ -111,7 +111,35 @@ const translations = {
       inputPlaceholder: 'Type a message',
       interrupted: 'Task was interrupted before a reply was captured.',
       thinking: 'Thinking...',
-      retry: 'Retry'
+      retry: 'Retry',
+      approvePermission: 'Approve and continue',
+      permissionRequest: 'Permission requested',
+      search: 'Search',
+      skills: 'skills',
+      contexts: 'contexts',
+      terminal: 'Terminal',
+      terminalTranscript: 'Terminal transcript',
+      searchInContext: 'Search in #context',
+      selectFromContext: 'Select from #context',
+      back: 'Back',
+      use: 'Use',
+      folder: 'Folder',
+      file: 'File',
+      previewClose: 'Close preview',
+      preview: {
+        cwd: 'cwd',
+        cmd: 'cmd',
+        output: 'output',
+        statuses: {
+          queued: 'queued',
+          sent: 'sent',
+          running: 'running',
+          warning: 'warning',
+          failed: 'failed',
+          completed: 'completed',
+          skipped: 'skipped'
+        }
+      }
     },
     contextPanel: {
       noProject: 'No project',
@@ -264,7 +292,35 @@ const translations = {
       inputPlaceholder: '输入消息',
       interrupted: '任务被中断，未拿到回复。',
       thinking: '正在思考...',
-      retry: '重试'
+      retry: '重试',
+      approvePermission: '授权并继续',
+      permissionRequest: '需要授权',
+      search: '搜索',
+      skills: '个技能',
+      contexts: '个上下文',
+      terminal: '终端',
+      terminalTranscript: '终端记录',
+      searchInContext: '在 #上下文中搜索',
+      selectFromContext: '从 #上下文选择',
+      back: '返回',
+      use: '使用',
+      folder: '文件夹',
+      file: '文件',
+      previewClose: '关闭预览',
+      preview: {
+        cwd: '目录',
+        cmd: '命令',
+        output: '输出',
+        statuses: {
+          queued: '排队',
+          sent: '已发送',
+          running: '运行中',
+          warning: '警告',
+          failed: '失败',
+          completed: '完成',
+          skipped: '跳过'
+        }
+      }
     },
     contextPanel: {
       noProject: '无项目',
@@ -553,7 +609,7 @@ export function App(): ReactNode {
       );
       if (canceled) return;
 
-      const nextIds = results.filter((id): id is CliId => Boolean(id));
+      const nextIds = Array.from(new Set<CliId>(['shell', ...results.filter((id): id is CliId => Boolean(id))]));
       setAvailableProfileIds(nextIds);
 
       if (nextIds.length > 0 && !nextIds.includes(activeProfile)) {
@@ -568,7 +624,7 @@ export function App(): ReactNode {
   }, [activeProfile, profiles, settings.cliBindings]);
 
   const visibleProfiles = useMemo(
-    () => (availableProfileIds.length ? profiles.filter((profile) => availableProfileIds.includes(profile.id)) : profiles),
+    () => profiles.filter((profile) => profile.id === 'shell' || availableProfileIds.includes(profile.id)),
     [availableProfileIds, profiles]
   );
 
@@ -828,6 +884,7 @@ export function App(): ReactNode {
 
           {conversationDialogOpen ? (
             <ConversationDialog
+              defaultCliId={activeProfile}
               profiles={visibleProfiles}
               recentProjectPaths={conversationStore.recentProjectPaths}
               t={t}
@@ -851,6 +908,17 @@ export function App(): ReactNode {
               t={t}
               onBack={() => setActiveView('terminal')}
               onChange={updateSettings}
+              onProfileAvailability={(profileId, available) => {
+                setAvailableProfileIds((items) => {
+                  const nextItems = new Set<CliId>(['shell', ...items]);
+                  if (available) {
+                    nextItems.add(profileId);
+                  } else if (profileId !== 'shell') {
+                    nextItems.delete(profileId);
+                  }
+                  return profiles.filter((profile) => nextItems.has(profile.id)).map((profile) => profile.id);
+                });
+              }}
             />
           ) : (
             <div className={conversationPanelOpen ? 'content-grid' : 'content-grid conversation-collapsed'}>
@@ -1089,7 +1157,8 @@ function SettingsView({
   settings,
   t,
   onBack,
-  onChange
+  onChange,
+  onProfileAvailability
 }: {
   profiles: CliProfile[];
   shellOptions: ShellOption[];
@@ -1097,6 +1166,7 @@ function SettingsView({
   t: Translation;
   onBack: () => void;
   onChange: (patch: Partial<AppSettings>) => void;
+  onProfileAvailability: (profileId: CliId, available: boolean) => void;
 }): ReactNode {
   const [bindingChecks, setBindingChecks] = useState<
     Partial<Record<CliId, 'idle' | 'checking' | 'available' | 'missing'>>
@@ -1177,9 +1247,11 @@ function SettingsView({
           ...items,
           [profile.id]: result.available ? 'available' : 'missing'
         }));
+        onProfileAvailability(profile.id, result.available);
       })
       .catch(() => {
         setBindingChecks((items) => ({ ...items, [profile.id]: 'missing' }));
+        onProfileAvailability(profile.id, false);
       });
   }
 
@@ -1553,12 +1625,14 @@ function SettingsView({
 
 function ConversationDialog({
   profiles,
+  defaultCliId,
   recentProjectPaths,
   t,
   onCancel,
   onCreate
 }: {
   profiles: CliProfile[];
+  defaultCliId: CliId;
   recentProjectPaths: string[];
   t: Translation;
   onCancel: () => void;
@@ -1570,13 +1644,21 @@ function ConversationDialog({
     sessionId?: string;
   }) => void;
 }): ReactNode {
-  const [cliId, setCliId] = useState<CliId>(profiles[0]?.id ?? 'shell');
+  const [cliId, setCliId] = useState<CliId>(
+    profiles.some((profile) => profile.id === defaultCliId) ? defaultCliId : profiles[0]?.id ?? 'shell'
+  );
   const [projectPath, setProjectPath] = useState(recentProjectPaths[0] ?? '');
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState<ConversationMode>('new');
   const [sessionId, setSessionId] = useState('');
   const selectedProfile = profiles.find((profile) => profile.id === cliId) ?? profiles[0];
   const supportedModes = useMemo(() => getSupportedConversationModes(cliId), [cliId]);
+
+  useEffect(() => {
+    if (!profiles.length) return;
+    if (profiles.some((profile) => profile.id === cliId)) return;
+    setCliId(profiles.some((profile) => profile.id === defaultCliId) ? defaultCliId : profiles[0].id);
+  }, [cliId, defaultCliId, profiles]);
 
   useEffect(() => {
     if (!supportedModes.includes(mode)) setMode('new');
