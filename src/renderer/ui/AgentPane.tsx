@@ -34,12 +34,22 @@ export interface AgentContextSource {
 function GlassSuggestionMenu({
   children,
   className = '',
+  enabled,
   menuClassName = 'agent-reference-menu'
 }: {
   children: ReactNode;
   className?: string;
+  enabled: boolean;
   menuClassName?: string;
 }): ReactNode {
+  if (!enabled) {
+    return (
+      <div className={`agent-reference-glass-shell plain ${className}`}>
+        <div className={menuClassName}>{children}</div>
+      </div>
+    );
+  }
+
   return (
     <div className={`agent-reference-glass-shell ${className}`}>
       <LiquidGlass
@@ -498,6 +508,7 @@ interface AgentPaneProps {
   profileName: string;
   profileId: CliId;
   language: 'en' | 'zh-CN';
+  nativeMaterial: boolean;
   onStoreChange: (store: ConversationStore) => void;
   labels: {
     user: string;
@@ -539,6 +550,7 @@ export function AgentPane({
   profileName,
   profileId,
   language,
+  nativeMaterial,
   onStoreChange,
   labels
 }: AgentPaneProps): ReactNode {
@@ -1275,7 +1287,7 @@ export function AgentPane({
               />
             </div>
             {showSkillMenu ? (
-              <GlassSuggestionMenu menuClassName="agent-skill-menu">
+              <GlassSuggestionMenu enabled={nativeMaterial} menuClassName="agent-skill-menu">
                 <div className="agent-skill-menu-meta">
                   <span>{skillQuery ? `${labels.search}: ${skillQuery}` : `${skills.length} ${labels.skills}`}</span>
                 </div>
@@ -1297,7 +1309,7 @@ export function AgentPane({
               </GlassSuggestionMenu>
             ) : null}
             {showReferenceMenu ? (
-              <GlassSuggestionMenu className="agent-reference-context-menu">
+              <GlassSuggestionMenu className="agent-reference-context-menu" enabled={nativeMaterial}>
                 <div className="agent-skill-menu-meta">
                   <span>
                     {contextQuery ? `${labels.search}: ${contextQuery}` : `${contextSources.length} ${labels.contexts}`}
@@ -1323,7 +1335,7 @@ export function AgentPane({
               </GlassSuggestionMenu>
             ) : null}
             {showSnippetMenu ? (
-              <GlassSuggestionMenu className="agent-reference-context-menu agent-snippet-menu">
+              <GlassSuggestionMenu className="agent-reference-context-menu agent-snippet-menu" enabled={nativeMaterial}>
                 <div className="agent-skill-menu-meta">
                   <span>{snippetQuery ? `${labels.searchInContext}: ${snippetQuery}` : labels.selectFromContext}</span>
                 </div>
@@ -1343,7 +1355,7 @@ export function AgentPane({
               </GlassSuggestionMenu>
             ) : null}
             {showFileMenu ? (
-              <GlassSuggestionMenu className="agent-reference-file-menu">
+              <GlassSuggestionMenu className="agent-reference-file-menu" enabled={nativeMaterial}>
                 <div className="agent-skill-menu-meta">
                   {browsingFiles ? (
                     <div className="agent-file-breadcrumbs">

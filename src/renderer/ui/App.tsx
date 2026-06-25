@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
@@ -64,11 +64,21 @@ const cliClassNames: Record<CliId, string> = {
   kimi: 'cli-kimi'
 };
 
+const appVersion = '0.1.0';
+
 const translations = {
   en: {
     appName: 'Island Light Console',
     appMenu: ['File', 'Edit', 'View', 'Window', 'Help'],
     search: 'Search sessions, agents, commands',
+    searchEmpty: 'No matches',
+    commandNewConversation: 'Create conversation',
+    commandOpenSettings: 'Open settings',
+    commandOpenTerminal: 'Open terminal',
+    aboutTitle: 'About',
+    aboutVersion: 'Version',
+    aboutDescription: 'A local AI terminal shell for multiple CLI agents.',
+    aboutRuntime: 'Runtime',
     newTerminal: 'New terminal',
     newConversation: 'New conversation',
     expandConversation: 'Expand conversations',
@@ -103,6 +113,20 @@ const translations = {
     closeCurrentTab: 'Close current tab',
     closeOtherTabs: 'Close other tabs',
     closeTabsToRight: 'Close tabs to the right',
+    appMenuItems: {
+      newConversation: 'New conversation',
+      newTerminal: 'New terminal',
+      settings: 'Settings',
+      restartTerminal: 'Restart terminal',
+      closeTab: 'Close tab',
+      closeOtherTabs: 'Close other tabs',
+      toggleConversations: 'Toggle conversations',
+      commandPalette: 'Command palette',
+      minimize: 'Minimize',
+      maximize: 'Maximize',
+      closeWindow: 'Close window',
+      about: 'About'
+    },
     profileDescriptions: {
       shell: 'Start a regular local terminal session.',
       opencode: 'Launch OpenCode CLI in the current workspace.',
@@ -255,6 +279,14 @@ const translations = {
     appName: 'Island Light Console',
     appMenu: ['文件', '编辑', '视图', '窗口', '帮助'],
     search: '搜索会话、代理、命令',
+    searchEmpty: '没有匹配结果',
+    commandNewConversation: '新建对话',
+    commandOpenSettings: '打开设置',
+    commandOpenTerminal: '打开终端',
+    aboutTitle: '关于',
+    aboutVersion: '版本',
+    aboutDescription: '面向多个 CLI Agent 的本地 AI 终端外壳。',
+    aboutRuntime: '运行环境',
     newTerminal: '新建终端',
     newConversation: '新建对话',
     expandConversation: '展开对话',
@@ -289,6 +321,20 @@ const translations = {
     closeCurrentTab: '关闭当前标签',
     closeOtherTabs: '关闭其它标签',
     closeTabsToRight: '关闭右侧标签',
+    appMenuItems: {
+      newConversation: '新建对话',
+      newTerminal: '新建终端',
+      settings: '设置',
+      restartTerminal: '重启终端',
+      closeTab: '关闭标签',
+      closeOtherTabs: '关闭其它标签',
+      toggleConversations: '切换对话栏',
+      commandPalette: '命令面板',
+      minimize: '最小化',
+      maximize: '最大化',
+      closeWindow: '关闭窗口',
+      about: '关于'
+    },
     profileDescriptions: {
       shell: '启动普通本地终端会话。',
       opencode: '在当前工作目录启动 OpenCode CLI。',
@@ -458,6 +504,17 @@ interface SessionTab {
   sessionKey?: string;
 }
 
+interface CommandPaletteItem {
+  id: string;
+  icon: typeof TerminalSquare;
+  title: string;
+  detail: string;
+  keywords: string;
+  action: () => void;
+}
+
+type AppMenuId = 'file' | 'edit' | 'view' | 'window' | 'help';
+
 const modeOptions: ConversationMode[] = ['new', 'resume-last', 'resume-id', 'fork'];
 
 function getSupportedConversationModes(cliId: CliId): ConversationMode[] {
@@ -500,6 +557,11 @@ export function App(): ReactNode {
   const [conversationDialogOpen, setConversationDialogOpen] = useState(false);
   const [activeProfile, setActiveProfile] = useState<CliId>('codex');
   const [activeView, setActiveView] = useState<'terminal' | 'settings'>('terminal');
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [openAppMenu, setOpenAppMenu] = useState<AppMenuId | null>(null);
+  const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
   const [conversationPanelOpen, setConversationPanelOpen] = useState(true);
   const [expandedAgentKeys, setExpandedAgentKeys] = useState<Record<string, boolean>>({});
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
@@ -507,6 +569,7 @@ export function App(): ReactNode {
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [tabs, setTabs] = useState<SessionTab[]>([fallbackTab]);
   const [activeTabId, setActiveTabId] = useState(fallbackTab.id);
+  const commandPaletteInputRef = useRef<HTMLInputElement | null>(null);
   const tabsScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState({ left: false, right: false });
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
@@ -634,6 +697,46 @@ export function App(): ReactNode {
   }, [tabContextMenu, tabMenuOpen, t.tabMenu]);
 
   useEffect(() => {
+    if (!commandPaletteOpen) return;
+    window.requestAnimationFrame(() => commandPaletteInputRef.current?.focus());
+  }, [commandPaletteOpen]);
+
+  useEffect(() => {
+    if (!commandPaletteOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.command-palette')) return;
+      setCommandPaletteOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [commandPaletteOpen]);
+
+  useEffect(() => {
+    if (!openAppMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.app-menu')) return;
+      setOpenAppMenu(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [openAppMenu]);
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+      if (event.key === 'Escape') setCommandPaletteOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
     if (profiles.length === 0) return;
 
     let canceled = false;
@@ -679,6 +782,85 @@ export function App(): ReactNode {
     () => visibleProfiles.find((profile) => profile.id === activeProfile) ?? visibleProfiles[0],
     [activeProfile, visibleProfiles]
   );
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const staticItems: CommandPaletteItem[] = [
+      {
+        id: 'command:new-conversation',
+        icon: MessageSquarePlus,
+        title: t.commandNewConversation,
+        detail: t.conversations,
+        keywords: `${t.commandNewConversation} ${t.newConversation}`,
+        action: () => {
+          setConversationDialogOpen(true);
+          setActiveView('terminal');
+        }
+      },
+      {
+        id: 'command:terminal',
+        icon: TerminalSquare,
+        title: t.commandOpenTerminal,
+        detail: t.terminal,
+        keywords: `${t.commandOpenTerminal} ${t.terminal}`,
+        action: () => setActiveView('terminal')
+      },
+      {
+        id: 'command:settings',
+        icon: Settings,
+        title: t.commandOpenSettings,
+        detail: t.settings,
+        keywords: `${t.commandOpenSettings} ${t.settings}`,
+        action: () => setActiveView('settings')
+      }
+    ];
+
+    const profileItems = visibleProfiles.map<CommandPaletteItem>((profile) => {
+      const Icon = profileIcons[profile.id] ?? TerminalSquare;
+      return {
+        id: `profile:${profile.id}`,
+        icon: Icon,
+        title: `${t.newTerminal}: ${profile.name}`,
+        detail: t.profileDescriptions[profile.id],
+        keywords: `${profile.id} ${profile.name} ${t.newTerminal} ${t.profileDescriptions[profile.id]}`,
+        action: () => createTab(profile.id)
+      };
+    });
+
+    const conversationItems = conversationStore.conversations.slice(0, 80).map<CommandPaletteItem>((conversation) => {
+      const Icon = profileIcons[conversation.cliId] ?? MessageSquare;
+      return {
+        id: `conversation:${conversation.id}`,
+        icon: Icon,
+        title: conversation.title || conversation.cliId,
+        detail: `${getProfileName(conversation.cliId)} - ${conversation.projectPath}`,
+        keywords: `${conversation.title} ${conversation.cliId} ${conversation.projectPath}`,
+        action: () => openConversation(conversation)
+      };
+    });
+
+    return [...staticItems, ...profileItems, ...conversationItems];
+  }, [conversationStore.conversations, t, visibleProfiles]);
+  const commandPaletteMatches = useMemo(() => {
+    const query = commandPaletteQuery.trim().toLowerCase();
+    if (!query) return commandPaletteItems.slice(0, 16);
+    return commandPaletteItems
+      .map((item) => ({
+        item,
+        score: item.keywords.toLowerCase().includes(query)
+          ? item.keywords.toLowerCase().indexOf(query)
+          : item.title.toLowerCase().includes(query)
+            ? item.title.toLowerCase().indexOf(query)
+            : -1
+      }))
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => a.score - b.score || a.item.title.localeCompare(b.item.title))
+      .slice(0, 16)
+      .map((entry) => entry.item);
+  }, [commandPaletteItems, commandPaletteQuery]);
+
+  useEffect(() => {
+    if (selectedCommandIndex < commandPaletteMatches.length) return;
+    setSelectedCommandIndex(0);
+  }, [commandPaletteMatches.length, selectedCommandIndex]);
 
   function updateTabScrollState(): void {
     const element = tabsScrollRef.current;
@@ -695,6 +877,106 @@ export function App(): ReactNode {
     if (!element) return;
     const distance = Math.max(160, element.clientWidth * 0.6);
     element.scrollBy({ left: direction === 'left' ? -distance : distance, behavior: 'smooth' });
+  }
+
+  function runCommandPaletteItem(item: CommandPaletteItem | undefined): void {
+    if (!item) return;
+    item.action();
+    setCommandPaletteOpen(false);
+    setCommandPaletteQuery('');
+    setSelectedCommandIndex(0);
+  }
+
+  function runAppMenuAction(action: () => void): void {
+    action();
+    setOpenAppMenu(null);
+  }
+
+  function renderGlassPanel(className: string, children: ReactNode, style?: CSSProperties): ReactNode {
+    if (!settings.nativeMaterial) return <div className={`${className} plain`}>{children}</div>;
+    return (
+      <LiquidGlass
+        alpha={0.35}
+        blur={8}
+        className={className}
+        displace={7}
+        dispersion={28}
+        effectMode="svg"
+        frost={0.08}
+        glassColor="rgba(255,255,255,0.28)"
+        lens="convex"
+        lensStrength={1.35}
+        lightness={68}
+        liquid="flow"
+        liquidScale={3}
+        liquidSpeed={0.75}
+        quality="high"
+        radius={8}
+        saturation={180}
+        scale={220}
+        style={style ?? { width: '100%' }}
+      >
+        {children}
+      </LiquidGlass>
+    );
+  }
+
+  function renderAboutDialog(): ReactNode {
+    const content = (
+      <section className="conversation-dialog about-dialog" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <header className="conversation-dialog-header">
+          <h2>{t.aboutTitle}</h2>
+          <button type="button" aria-label={t.cancel} onClick={() => setAboutDialogOpen(false)}>
+            <XIcon size={15} />
+          </button>
+        </header>
+        <div className="about-dialog-body">
+          <div className="about-dialog-icon">
+            <TerminalSquare size={26} />
+          </div>
+          <div>
+            <strong>{t.appName}</strong>
+            <p>{t.aboutDescription}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>{t.aboutVersion}</dt>
+              <dd>{appVersion}</dd>
+            </div>
+            <div>
+              <dt>{t.aboutRuntime}</dt>
+              <dd>{navigator.userAgent.match(/Electron\/([^\s]+)/u)?.[0] ?? 'Electron'}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+    );
+
+    if (!settings.nativeMaterial) return <div className="about-dialog-glass plain">{content}</div>;
+    return (
+      <LiquidGlass
+        aberrationIntensity={0.45}
+        alpha={0.42}
+        background="rgba(248,251,253,0.58)"
+        blur={7}
+        className="about-dialog-glass"
+        displace={5}
+        dispersion={18}
+        effectMode="svg"
+        frost={0.08}
+        glassColor="rgba(255,255,255,0.42)"
+        lens="convex"
+        lensStrength={1.1}
+        lightness={74}
+        quality="high"
+        radius={8}
+        saturation={150}
+        scale={180}
+        style={{ width: 'min(380px, 92vw)', height: 'auto' }}
+      >
+        {content}
+      </LiquidGlass>
+    );
   }
 
   const conversationsByProject = useMemo(() => {
@@ -897,10 +1179,83 @@ export function App(): ReactNode {
       <main className={settings.nativeMaterial ? 'app-shell native-material-enabled' : 'app-shell'}>
         <header className="window-chrome">
           <nav className="app-menu" aria-label="Application menu">
-            {t.appMenu.map((item) => (
-              <button key={item} type="button">
-                {item}
-              </button>
+            {([
+              ['file', t.appMenu[0]],
+              ['edit', t.appMenu[1]],
+              ['view', t.appMenu[2]],
+              ['window', t.appMenu[3]],
+              ['help', t.appMenu[4]]
+            ] as Array<[AppMenuId, string]>).map(([id, label]) => (
+              <div className="app-menu-group" key={id}>
+                <button
+                  className={openAppMenu === id ? 'active' : undefined}
+                  type="button"
+                  onClick={() => setOpenAppMenu((current) => (current === id ? null : id))}
+                >
+                  {label}
+                </button>
+                {openAppMenu === id ? (
+                  <div className="app-menu-popover">
+                    {id === 'file' ? (
+                      <>
+                        <button type="button" onClick={() => runAppMenuAction(() => setConversationDialogOpen(true))}>
+                          {t.appMenuItems.newConversation}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => createTab(activeProfile))}>
+                          {t.appMenuItems.newTerminal}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => setActiveView('settings'))}>
+                          {t.appMenuItems.settings}
+                        </button>
+                      </>
+                    ) : null}
+                    {id === 'edit' ? (
+                      <>
+                        <button type="button" onClick={() => runAppMenuAction(() => setCommandPaletteOpen(true))}>
+                          {t.appMenuItems.commandPalette}
+                        </button>
+                      </>
+                    ) : null}
+                    {id === 'view' ? (
+                      <>
+                        <button type="button" onClick={() => runAppMenuAction(() => setConversationPanelOpen((isOpen) => !isOpen))}>
+                          {t.appMenuItems.toggleConversations}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => setActiveView('terminal'))}>
+                          {t.commandOpenTerminal}
+                        </button>
+                      </>
+                    ) : null}
+                    {id === 'window' ? (
+                      <>
+                        <button type="button" onClick={() => runAppMenuAction(restartActiveTab)}>
+                          {t.appMenuItems.restartTerminal}
+                        </button>
+                        <button type="button" disabled={tabs.length <= 1} onClick={() => runAppMenuAction(closeActiveTab)}>
+                          {t.appMenuItems.closeTab}
+                        </button>
+                        <button type="button" disabled={tabs.length <= 1} onClick={() => runAppMenuAction(() => closeOtherTabs())}>
+                          {t.appMenuItems.closeOtherTabs}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => void window.windowApi.minimize())}>
+                          {t.appMenuItems.minimize}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => void window.windowApi.toggleMaximize())}>
+                          {t.appMenuItems.maximize}
+                        </button>
+                        <button type="button" onClick={() => runAppMenuAction(() => void window.windowApi.close())}>
+                          {t.appMenuItems.closeWindow}
+                        </button>
+                      </>
+                    ) : null}
+                    {id === 'help' ? (
+                      <button type="button" onClick={() => runAppMenuAction(() => setAboutDialogOpen(true))}>
+                        {t.appMenuItems.about}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ))}
           </nav>
           <div className="window-controls">
@@ -955,10 +1310,59 @@ export function App(): ReactNode {
               <p className="eyebrow">TUI AI Terminal</p>
               <h1>{t.appName}</h1>
             </div>
-            <div className="command-palette">
+            <div className={commandPaletteOpen ? 'command-palette open' : 'command-palette'}>
               <Command size={15} />
-              <span>{t.search}</span>
+              <input
+                ref={commandPaletteInputRef}
+                aria-label={t.search}
+                placeholder={t.search}
+                value={commandPaletteQuery}
+                onFocus={() => setCommandPaletteOpen(true)}
+                onChange={(event) => {
+                  setCommandPaletteQuery(event.target.value);
+                  setSelectedCommandIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    if (commandPaletteMatches.length === 0) return;
+                    setSelectedCommandIndex((current) => {
+                      const offset = event.key === 'ArrowDown' ? 1 : -1;
+                      return (current + offset + commandPaletteMatches.length) % commandPaletteMatches.length;
+                    });
+                    return;
+                  }
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    runCommandPaletteItem(commandPaletteMatches[selectedCommandIndex] ?? commandPaletteMatches[0]);
+                  }
+                }}
+              />
               <kbd>⌘K</kbd>
+              {commandPaletteOpen ? (
+                <div className="command-palette-menu">
+                  {commandPaletteMatches.length ? (
+                    commandPaletteMatches.map((item, index) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          className={index === selectedCommandIndex ? 'selected' : undefined}
+                          key={item.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => runCommandPaletteItem(item)}
+                        >
+                          <Icon size={14} />
+                          <span>{item.title}</span>
+                          <small>{item.detail}</small>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="command-palette-empty">{t.searchEmpty}</div>
+                  )}
+                </div>
+              ) : null}
             </div>
           </header>
 
@@ -978,6 +1382,12 @@ export function App(): ReactNode {
                 });
               }}
             />
+          ) : null}
+
+          {aboutDialogOpen ? (
+            <div className="dialog-backdrop" role="presentation" onClick={() => setAboutDialogOpen(false)}>
+              {renderAboutDialog()}
+            </div>
           ) : null}
 
           {activeView === 'settings' ? (
@@ -1210,27 +1620,7 @@ export function App(): ReactNode {
                   </Popover.Root>
                   {tabMenuOpen ? (
                     <div className="tab-menu-popover">
-                      <LiquidGlass
-                        alpha={0.35}
-                        blur={8}
-                        className="tab-menu-glass"
-                        displace={7}
-                        dispersion={28}
-                        effectMode="svg"
-                        frost={0.08}
-                        glassColor="rgba(255,255,255,0.28)"
-                        lens="convex"
-                        lensStrength={1.35}
-                        lightness={68}
-                        liquid="flow"
-                        liquidScale={3}
-                        liquidSpeed={0.75}
-                        quality="high"
-                        radius={8}
-                        saturation={180}
-                        scale={220}
-                        style={{ width: '100%' }}
-                      >
+                      {renderGlassPanel('tab-menu-glass', (
                         <div className="tab-menu-content">
                           <div className="tab-menu-list">
                             {tabs.map((tab) => {
@@ -1267,7 +1657,7 @@ export function App(): ReactNode {
                             </button>
                           </div>
                         </div>
-                      </LiquidGlass>
+                      ))}
                     </div>
                   ) : null}
                   {tabContextMenu ? (
@@ -1278,27 +1668,7 @@ export function App(): ReactNode {
                         top: tabContextMenu.y
                       }}
                     >
-                      <LiquidGlass
-                        alpha={0.35}
-                        blur={8}
-                        className="tab-menu-glass"
-                        displace={7}
-                        dispersion={28}
-                        effectMode="svg"
-                        frost={0.08}
-                        glassColor="rgba(255,255,255,0.28)"
-                        lens="convex"
-                        lensStrength={1.35}
-                        lightness={68}
-                        liquid="flow"
-                        liquidScale={3}
-                        liquidSpeed={0.75}
-                        quality="high"
-                        radius={8}
-                        saturation={180}
-                        scale={220}
-                        style={{ width: '100%' }}
-                      >
+                      {renderGlassPanel('tab-menu-glass', (
                         <div className="tab-menu-content tab-context-menu-content">
                           <div className="tab-menu-actions">
                             <button
@@ -1324,7 +1694,7 @@ export function App(): ReactNode {
                             </button>
                           </div>
                         </div>
-                      </LiquidGlass>
+                      ))}
                     </div>
                   ) : null}
                 </div>
@@ -1351,6 +1721,7 @@ export function App(): ReactNode {
                         contextSources={contextSources}
                         labels={t.agentPane}
                         language={resolvedLanguage}
+                        nativeMaterial={settings.nativeMaterial}
                         onStoreChange={setConversationStore}
                         profileId={tab.profileId}
                         profileName={profiles.find((profile) => profile.id === tab.profileId)?.name ?? tab.profileId}
