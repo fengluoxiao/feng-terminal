@@ -10,6 +10,7 @@ export interface AgentSendRequest {
   referencedConversationIds?: string[];
   contextReferences?: AgentContextReferenceInput[];
   toolApprovals?: AgentToolApprovalInput[];
+  language?: 'en' | 'zh-CN';
 }
 
 export interface AgentToolApprovalInput {

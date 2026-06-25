@@ -14,6 +14,7 @@
     "postinstall": "electron-rebuild -f -w node-pty"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "^1.1.17",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -21,7 +22,8 @@
     "lucide-react": "^0.468.0",
     "node-pty": "^1.1.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "simple-liquid-glass": "^4.1.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",

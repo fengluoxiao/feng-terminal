@@ -1249,6 +1249,31 @@ function truncateText(value: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
+async function getResolvedLanguage(): Promise<'en' | 'zh-CN'> {
+  const language = (await readAppSettings()).language;
+  if (language === 'en' || language === 'zh-CN') return language;
+  return app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+async function formatAgentCallMessage(
+  status: 'calling' | 'returned' | 'failed',
+  title: string,
+  agentName: string,
+  body?: string,
+  requestedLanguage?: 'en' | 'zh-CN'
+): Promise<string> {
+  const language = requestedLanguage ?? (await getResolvedLanguage());
+  if (language === 'zh-CN') {
+    if (status === 'calling') return `正在调用 #${title}（${agentName}）...`;
+    if (status === 'failed') return `#${title}（${agentName}）调用失败：\n\n${body ?? ''}`;
+    return `#${title}（${agentName}）已返回：\n\n${body ?? ''}`;
+  }
+
+  if (status === 'calling') return `Calling #${title} (${agentName})...`;
+  if (status === 'failed') return `#${title} (${agentName}) failed:\n\n${body ?? ''}`;
+  return `#${title} (${agentName}) returned:\n\n${body ?? ''}`;
+}
+
 function createConversationReference(conversation: ConversationRecord): ConversationReference {
   return {
     id: conversation.id,
@@ -1382,7 +1407,8 @@ async function invokeReferencedAgentConversations(
   conversation: ConversationRecord,
   prompt: string,
   referenceContexts: PromptReferenceContext[],
-  options: AgentCoordinationOptions
+  options: AgentCoordinationOptions,
+  requestedLanguage?: 'en' | 'zh-CN'
 ): Promise<ReferenceInvocationResult[]> {
   const depth = options.depth ?? 0;
   if (options.skipReferenceInvocations || depth >= 2) return [];
@@ -1412,7 +1438,7 @@ async function invokeReferencedAgentConversations(
     ].join('\n');
     await appendSystemNote(
       conversation.id,
-      `Calling #${target.title} (${getCliProfile(target.cliId).name})...`
+      await formatAgentCallMessage('calling', target.title, getCliProfile(target.cliId).name, undefined, requestedLanguage)
     );
 
     const startedAt = nowIso();
@@ -1446,7 +1472,13 @@ async function invokeReferencedAgentConversations(
       broadcastAgentUpdate(target.id, nextStore);
       await appendSystemNote(
         conversation.id,
-        `#${target.title} (${getCliProfile(target.cliId).name}) returned:\n\n${truncateText(result.output, 6000)}`
+        await formatAgentCallMessage(
+          'returned',
+          target.title,
+          getCliProfile(target.cliId).name,
+          truncateText(result.output, 6000),
+          requestedLanguage
+        )
       );
       results.push({
         reference: createConversationReference(target),
@@ -1477,7 +1509,13 @@ async function invokeReferencedAgentConversations(
       broadcastAgentUpdate(target.id, nextStore);
       await appendSystemNote(
         conversation.id,
-        `#${target.title} (${getCliProfile(target.cliId).name}) failed:\n\n${truncateText(message, 700)}`
+        await formatAgentCallMessage(
+          'failed',
+          target.title,
+          getCliProfile(target.cliId).name,
+          truncateText(message, 700),
+          requestedLanguage
+        )
       );
       results.push({
         reference: createConversationReference(target),
@@ -2076,7 +2114,8 @@ async function sendAgentMessage(request: AgentSendRequest, options: AgentCoordin
         conversation,
         promptWithSnippets,
         referenceContexts,
-        options
+        options,
+        request.language
       );
       const effectiveReferenceContexts = [
         ...referenceContexts,

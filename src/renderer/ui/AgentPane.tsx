@@ -430,7 +430,7 @@ function detectPermissionRequest(content: string): string | null {
 }
 
 function isCoordinationMessage(content: string): boolean {
-  return /^(?:Calling #.+ for this request|#.+ \(.+\) returned:|#.+ \(.+\) failed:)/u.test(content.trim());
+  return /^(?:Calling #.+|正在调用 #.+|#.+\s*(?:\(.+\)|（.+）)\s*(?:returned|failed):|#.+（.+）(?:已返回|调用失败)：)/u.test(content.trim());
 }
 
 function UserMessageContent({
@@ -458,6 +458,7 @@ interface AgentPaneProps {
   contextSources: AgentContextSource[];
   profileName: string;
   profileId: CliId;
+  language: 'en' | 'zh-CN';
   onStoreChange: (store: ConversationStore) => void;
   labels: {
     user: string;
@@ -467,6 +468,7 @@ interface AgentPaneProps {
     interrupted: string;
     thinking: string;
     retry: string;
+    system: string;
     approvePermission: string;
     permissionRequest: string;
     search: string;
@@ -497,6 +499,7 @@ export function AgentPane({
   contextSources,
   profileName,
   profileId,
+  language,
   onStoreChange,
   labels
 }: AgentPaneProps): ReactNode {
@@ -701,6 +704,7 @@ export function AgentPane({
     void window.agentApi
       .send({
         conversationId: conversation.id,
+        language,
         ...request
       })
       .then((result) => {
@@ -1115,7 +1119,7 @@ export function AgentPane({
               <div className="agent-message-avatar">{message.role === 'user' ? '你' : <Bot size={13} />}</div>
               <div className="agent-message-bubble">
                 <span className="agent-message-author">
-                  {message.role === 'user' ? labels.user : message.role === 'system' ? labels.contexts : profileName}
+                  {message.role === 'user' ? labels.user : message.role === 'system' ? labels.system : profileName}
                 </span>
                 {message.role === 'user' ? (
                   <UserMessageContent

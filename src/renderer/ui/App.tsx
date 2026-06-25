@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   Bot,
   BriefcaseBusiness,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Check,
   CircleStop,
   Command,
@@ -28,6 +30,8 @@ import {
   XIcon
 } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import * as Popover from '@radix-ui/react-popover';
+import { LiquidGlass } from 'simple-liquid-glass';
 import type { ConversationMode, ConversationRecord, ConversationStore } from '../../shared/conversation';
 import { defaultCliBindings, defaultSettings } from '../../shared/settings';
 import type { AppSettings, CliBinding } from '../../shared/settings';
@@ -95,6 +99,10 @@ const translations = {
     loading: 'Loading',
     preparingProfiles: 'Preparing terminal profiles.',
     deleteConversation: 'Delete conversation',
+    tabMenu: 'Tab menu',
+    closeCurrentTab: 'Close current tab',
+    closeOtherTabs: 'Close other tabs',
+    closeTabsToRight: 'Close tabs to the right',
     profileDescriptions: {
       shell: 'Start a regular local terminal session.',
       opencode: 'Launch OpenCode CLI in the current workspace.',
@@ -112,6 +120,7 @@ const translations = {
       interrupted: 'Task was interrupted before a reply was captured.',
       thinking: 'Thinking...',
       retry: 'Retry',
+      system: 'Coordination',
       approvePermission: 'Approve and continue',
       permissionRequest: 'Permission requested',
       search: 'Search',
@@ -276,6 +285,10 @@ const translations = {
     loading: '加载中',
     preparingProfiles: '正在准备终端配置。',
     deleteConversation: '删除对话',
+    tabMenu: '标签菜单',
+    closeCurrentTab: '关闭当前标签',
+    closeOtherTabs: '关闭其它标签',
+    closeTabsToRight: '关闭右侧标签',
     profileDescriptions: {
       shell: '启动普通本地终端会话。',
       opencode: '在当前工作目录启动 OpenCode CLI。',
@@ -293,6 +306,7 @@ const translations = {
       interrupted: '任务被中断，未拿到回复。',
       thinking: '正在思考...',
       retry: '重试',
+      system: '协调',
       approvePermission: '授权并继续',
       permissionRequest: '需要授权',
       search: '搜索',
@@ -493,6 +507,9 @@ export function App(): ReactNode {
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [tabs, setTabs] = useState<SessionTab[]>([fallbackTab]);
   const [activeTabId, setActiveTabId] = useState(fallbackTab.id);
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const [tabScrollState, setTabScrollState] = useState({ left: false, right: false });
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const activeConversation = conversationStore.conversations.find(
     (conversation) => conversation.id === activeTab.conversationId
@@ -587,6 +604,28 @@ export function App(): ReactNode {
   }, [activeTabId, conversationPanelOpen, tabs, workspaceLoaded]);
 
   useEffect(() => {
+    const element = tabsScrollRef.current;
+    if (!element) return;
+    updateTabScrollState();
+    const activeElement = element.querySelector<HTMLElement>('.tab.active');
+    activeElement?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const onResize = () => updateTabScrollState();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [activeTabId, tabs.length, conversationPanelOpen]);
+
+  useEffect(() => {
+    if (!tabMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.tab-menu-popover') || target?.closest('[aria-label="' + t.tabMenu + '"]')) return;
+      setTabMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [tabMenuOpen, t.tabMenu]);
+
+  useEffect(() => {
     if (profiles.length === 0) return;
 
     let canceled = false;
@@ -632,6 +671,23 @@ export function App(): ReactNode {
     () => visibleProfiles.find((profile) => profile.id === activeProfile) ?? visibleProfiles[0],
     [activeProfile, visibleProfiles]
   );
+
+  function updateTabScrollState(): void {
+    const element = tabsScrollRef.current;
+    if (!element) return;
+    const maxScroll = element.scrollWidth - element.clientWidth;
+    setTabScrollState({
+      left: element.scrollLeft > 2,
+      right: element.scrollLeft < maxScroll - 2
+    });
+  }
+
+  function scrollTabs(direction: 'left' | 'right'): void {
+    const element = tabsScrollRef.current;
+    if (!element) return;
+    const distance = Math.max(160, element.clientWidth * 0.6);
+    element.scrollBy({ left: direction === 'left' ? -distance : distance, behavior: 'smooth' });
+  }
 
   const conversationsByProject = useMemo(() => {
     const groups = new Map<string, Map<CliId, ConversationRecord[]>>();
@@ -760,6 +816,7 @@ export function App(): ReactNode {
     const nextTabs = tabs.filter((tab) => tab.id !== activeTabId);
     setTabs(nextTabs);
     setActiveTabId(nextTabs[Math.max(0, index - 1)].id);
+    setTabMenuOpen(false);
   }
 
   function restartActiveTab(): void {
@@ -788,6 +845,21 @@ export function App(): ReactNode {
     }
   }
 
+  function closeOtherTabs(): void {
+    const current = tabs.find((tab) => tab.id === activeTabId);
+    if (!current) return;
+    setTabs([current]);
+    setActiveTabId(current.id);
+    setTabMenuOpen(false);
+  }
+
+  function closeTabsToRight(): void {
+    const index = tabs.findIndex((tab) => tab.id === activeTabId);
+    if (index < 0 || index === tabs.length - 1) return;
+    setTabs(tabs.slice(0, index + 1));
+    setTabMenuOpen(false);
+  }
+
   function updateSettings(patch: Partial<AppSettings>): void {
     const nextSettings = { ...settings, ...patch };
     setSettings(nextSettings);
@@ -814,7 +886,7 @@ export function App(): ReactNode {
 
   return (
     <Tooltip.Provider delayDuration={450}>
-      <main className="app-shell">
+      <main className={settings.nativeMaterial ? 'app-shell native-material-enabled' : 'app-shell'}>
         <header className="window-chrome">
           <nav className="app-menu" aria-label="Application menu">
             {t.appMenu.map((item) => (
@@ -1055,46 +1127,132 @@ export function App(): ReactNode {
               ) : null}
 
               <section className="terminal-stage">
-                <div className="tabs">
-                  {tabs.map((tab) => {
-                    const Icon = profileIcons[tab.profileId] ?? TerminalSquare;
-                    return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className={tab.id === activeTab.id ? 'tab active' : 'tab'}
-                      onClick={() => setActiveTabId(tab.id)}
-                    >
-                      <Icon size={14} />
-                      <span>{tab.title}</span>
-                      <span
-                        className="tab-close"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Close ${tab.title}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          closeTab(tab.id);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
+                <div className="tabs-shell">
+                  <button
+                    className="tab-scroll-button"
+                    type="button"
+                    aria-label="Scroll tabs left"
+                    disabled={!tabScrollState.left}
+                    onClick={() => scrollTabs('left')}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <div className="tabs" ref={tabsScrollRef} onScroll={updateTabScrollState}>
+                    {tabs.map((tab) => {
+                      const Icon = profileIcons[tab.profileId] ?? TerminalSquare;
+                      return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        className={tab.id === activeTab.id ? 'tab active' : 'tab'}
+                        onClick={() => setActiveTabId(tab.id)}
+                      >
+                        <Icon size={14} />
+                        <span>{tab.title}</span>
+                        <span
+                          className="tab-close"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Close ${tab.title}`}
+                          onClick={(event) => {
                             event.stopPropagation();
                             closeTab(tab.id);
-                          }
-                        }}
-                      >
-                        <XIcon size={12} />
-                      </span>
-                    </button>
-                    );
-                  })}
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              closeTab(tab.id);
+                            }
+                          }}
+                        >
+                          <XIcon size={12} />
+                        </span>
+                      </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    className="tab-scroll-button"
+                    type="button"
+                    aria-label="Scroll tabs right"
+                    disabled={!tabScrollState.right}
+                    onClick={() => scrollTabs('right')}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
                   <button className="tab-tool" type="button" aria-label="New tab" onClick={() => createTab(activeProfile)}>
                     <Plus size={14} />
                   </button>
-                  <button className="tab-tool" type="button" aria-label="Tab menu">
-                    <ChevronDown size={14} />
-                  </button>
+                  <Popover.Root open={tabMenuOpen} onOpenChange={setTabMenuOpen}>
+                    <Popover.Trigger asChild>
+                      <button className="tab-tool" type="button" aria-label={t.tabMenu}>
+                        <ChevronDown size={14} />
+                      </button>
+                    </Popover.Trigger>
+                  </Popover.Root>
+                  {tabMenuOpen ? (
+                    <div className="tab-menu-popover">
+                      <LiquidGlass
+                        alpha={0.35}
+                        blur={8}
+                        className="tab-menu-glass"
+                        displace={7}
+                        dispersion={28}
+                        effectMode="svg"
+                        frost={0.08}
+                        glassColor="rgba(255,255,255,0.28)"
+                        lens="convex"
+                        lensStrength={1.35}
+                        lightness={68}
+                        liquid="flow"
+                        liquidScale={3}
+                        liquidSpeed={0.75}
+                        quality="high"
+                        radius={8}
+                        saturation={180}
+                        scale={220}
+                        style={{ width: '100%' }}
+                      >
+                        <div className="tab-menu-content">
+                          <div className="tab-menu-list">
+                            {tabs.map((tab) => {
+                              const Icon = profileIcons[tab.profileId] ?? TerminalSquare;
+                              return (
+                                <button
+                                  className={tab.id === activeTab.id ? 'selected' : ''}
+                                  key={tab.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveTabId(tab.id);
+                                    setTabMenuOpen(false);
+                                  }}
+                                >
+                                  <Icon size={13} />
+                                  <span>{tab.title}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="tab-menu-actions">
+                            <button type="button" disabled={tabs.length <= 1} onClick={closeActiveTab}>
+                              {t.closeCurrentTab}
+                            </button>
+                            <button type="button" disabled={tabs.length <= 1} onClick={closeOtherTabs}>
+                              {t.closeOtherTabs}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={tabs.findIndex((tab) => tab.id === activeTabId) >= tabs.length - 1}
+                              onClick={closeTabsToRight}
+                            >
+                              {t.closeTabsToRight}
+                            </button>
+                          </div>
+                        </div>
+                      </LiquidGlass>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="terminal-panes">
                   {tabs.map((tab) => (
@@ -1118,6 +1276,7 @@ export function App(): ReactNode {
                         conversationStore={conversationStore}
                         contextSources={contextSources}
                         labels={t.agentPane}
+                        language={resolvedLanguage}
                         onStoreChange={setConversationStore}
                         profileId={tab.profileId}
                         profileName={profiles.find((profile) => profile.id === tab.profileId)?.name ?? tab.profileId}
